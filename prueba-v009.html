@@ -1044,6 +1044,15 @@ function extraerIdLectura(valor){
 
 let resultadoLarkTimer = null;
 
+function cerrarResultadoLark(){
+  clearTimeout(resultadoLarkTimer);
+  const overlay=document.getElementById('resultado-lark-overlay');
+  if(overlay) overlay.classList.remove('visible');
+  const estado=document.getElementById('lark-estado');
+  if(estado) estado.textContent='🟢 Lector industrial listo';
+  setTimeout(enfocarLectorIndustrial,80);
+}
+
 function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
   const overlay=document.getElementById('resultado-lark-overlay');
   if(!overlay) return;
@@ -1079,10 +1088,7 @@ function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
   }
 
   clearTimeout(resultadoLarkTimer);
-  resultadoLarkTimer=setTimeout(()=>{
-    overlay.classList.remove('visible');
-    setTimeout(enfocarLectorIndustrial,80);
-  },2600);
+  resultadoLarkTimer=setTimeout(cerrarResultadoLark,2400);
 }
 
 async function procesarLectorIndustrial(valor){
@@ -2513,8 +2519,8 @@ document.addEventListener('DOMContentLoaded', function(){
 document.addEventListener('DOMContentLoaded',()=>setTimeout(inicializarLectorIndustrial,300));
 </script>
 
-<div id="resultado-lark-overlay" class="resultado-lark-overlay">
-  <div class="resultado-lark-card">
+<div id="resultado-lark-overlay" class="resultado-lark-overlay" onclick="cerrarResultadoLark()">
+  <div class="resultado-lark-card" onclick="event.stopPropagation()">
     <div id="resultado-lark-icono" class="resultado-lark-icono"></div>
     <div id="resultado-lark-titulo" class="resultado-lark-titulo"></div>
     <div id="resultado-lark-nombre" class="resultado-lark-nombre"></div>
