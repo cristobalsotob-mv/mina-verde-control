@@ -616,6 +616,47 @@ function cargarMovimientos(){
 }
 function guardarMovimientosLS(m){ localStorage.setItem('movimientos_minero', JSON.stringify(m)); }
 
+const ALERTAS_ACCESO_KEY='alertas_acceso_minero';
+const ALERTA_ACCESO_TTL=24*60*60*1000;
+
+function cargarAlertasAcceso(){
+  let arr=[];
+  try{ arr=JSON.parse(localStorage.getItem(ALERTAS_ACCESO_KEY)||'[]'); }catch(e){ arr=[]; }
+  const limite=Date.now()-ALERTA_ACCESO_TTL;
+  const vigentes=(Array.isArray(arr)?arr:[]).filter(a=>a && a.ts>=limite);
+  if(vigentes.length!==(Array.isArray(arr)?arr.length:0)){
+    localStorage.setItem(ALERTAS_ACCESO_KEY,JSON.stringify(vigentes));
+  }
+  return vigentes.sort((a,b)=>b.ts-a.ts);
+}
+
+function registrarAlertaAcceso(trabajador,motivos){
+  const alertas=cargarAlertasAcceso();
+  const alerta={
+    id:'ALERTA-'+Date.now()+'-'+trabajador.id,
+    ts:Date.now(),
+    personal_id:trabajador.id,
+    nombre:trabajador.nombre,
+    cargo:trabajador.cargo||'',
+    motivos:Array.isArray(motivos)?motivos:[String(motivos||'')]
+  };
+  alertas.unshift(alerta);
+  localStorage.setItem(ALERTAS_ACCESO_KEY,JSON.stringify(alertas));
+  if(typeof renderDashboard==='function') renderDashboard();
+  return alerta;
+}
+
+function limpiarAlertaAcceso(id){
+  const alertas=cargarAlertasAcceso().filter(a=>a.id!==id);
+  localStorage.setItem(ALERTAS_ACCESO_KEY,JSON.stringify(alertas));
+  renderDashboard();
+}
+
+function limpiarTodasAlertasAcceso(){
+  localStorage.removeItem(ALERTAS_ACCESO_KEY);
+  renderDashboard();
+}
+
 // ── Identidad del dispositivo (para saber qué portería registró qué) ──
 function idDispositivo(){
   let id = localStorage.getItem('dispositivo_id');
@@ -1151,6 +1192,7 @@ async function procesarLectorIndustrial(valor){
     if(ind.estado==='vencido') motivos.push('Inducción vencida'+(trabajador.induccion_vence ? ' · '+formatFecha(trabajador.induccion_vence) : ''));
 
     if(motivos.length){
+      registrarAlertaAcceso(trabajador,motivos);
       if(estado) estado.textContent='⛔ ACCESO DENEGADO · '+trabajador.nombre;
       mostrarResultadoLark('denegado',trabajador,'No se registró el ingreso',motivos);
       mostrarToast('⛔ Acceso denegado: documentación vencida');
@@ -1631,7 +1673,9 @@ function renderDashboard(){
   NIVELES.forEach(n=>{ porNivel[n]=[]; });
   dentro.forEach(p=>{ if(porNivel[p.ubicacion_actual]) porNivel[p.ubicacion_actual].push(p); });
 
-  const html = `
+  const alertas = cargarAlertasAcceso();
+
+  let html = `
     <div class="total-box">
       <div class="total-num">${total}</div>
       <div class="total-label">personas dentro de faena</div>
@@ -1651,6 +1695,30 @@ function renderDashboard(){
       }).join('')}
     </div>
   `;
+
+  if(alertas.length){
+    html += `<div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+        <div class="card-titulo" style="color:var(--rojo);margin:0">⚠️ Rechazos de acceso · últimas 24 h</div>
+        <button class="btn btn-sm btn-gris" style="margin:0" onclick="limpiarTodasAlertasAcceso()">Limpiar todas</button>
+      </div>
+      ${alertas.map(a=>`
+        <div class="mov-item">
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+            <div style="min-width:0">
+              <div class="mov-nombre">⛔ ${a.nombre}</div>
+              <div class="mov-detalle">${a.cargo||''}${a.personal_id?' · '+a.personal_id:''}</div>
+              <div class="mov-detalle">${new Date(a.ts).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+              <div style="margin-top:5px">
+                ${(a.motivos||[]).map(m=>`<span class="badge badge-rojo" style="margin:2px 4px 2px 0">${m}</span>`).join('')}
+              </div>
+            </div>
+            <button class="btn btn-sm btn-gris" style="margin:0;white-space:nowrap" onclick="limpiarAlertaAcceso('${a.id}')">Limpiar</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
 
   document.getElementById('dashboard-content').innerHTML = html;
 }
