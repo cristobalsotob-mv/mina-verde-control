@@ -1025,7 +1025,7 @@ let larkProcesando = false;
 let larkTimer = null;
 let larkUltimoId = '';
 let larkUltimoTs = 0;
-const LARK_BLOQUEO_MS = 5000;
+const LARK_BLOQUEO_MS = 2000;
 
 function inicializarLectorIndustrial(){
   const select = document.getElementById('lark-nivel');
@@ -1140,7 +1140,7 @@ async function procesarLectorIndustrial(valor){
 
   const ahora = Date.now();
   if(id === larkUltimoId && ahora - larkUltimoTs < LARK_BLOQUEO_MS){
-    if(estado) estado.textContent='⚠️ Lectura duplicada ignorada: '+id;
+    if(estado) estado.textContent='⚠️ Lectura duplicada ignorada · espere 2 segundos';
     enfocarLectorIndustrial();
     return;
   }
