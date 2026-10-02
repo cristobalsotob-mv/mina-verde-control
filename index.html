@@ -260,6 +260,10 @@
 <!-- TAB: DASHBOARD -->
 <!-- ══════════════════════════════════════════ -->
 <div id="page-dashboard" class="page">
+  <div class="card" style="padding:10px 12px">
+    <button class="btn btn-azul" id="dashboard-sync-btn" style="margin:0" onclick="sincronizarDashboard()">🔄 Sincronizar Dashboard</button>
+    <div id="dashboard-sync-status" style="font-size:12px;color:var(--texto2);text-align:center;min-height:18px;margin-top:7px"></div>
+  </div>
   <div id="dashboard-content"></div>
 </div>
 
@@ -1639,17 +1643,17 @@ function mostrarFichaBuscar(trabajador){
 // Aquí se sincronizan Personal + Movimientos y se aplica el último movimiento
 // conocido de cada trabajador antes de volver a pintar el Dashboard.
 function sincronizarDashboard(){
-  const estado = document.getElementById('sync-estado');
-  if(estado) estado.textContent = '🔄 Actualizando Dashboard...';
+  const status = document.getElementById('dashboard-sync-status');
+  const btn = document.getElementById('dashboard-sync-btn');
+  if(status) status.textContent = '🔄 Sincronizando con Google Sheets...';
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Sincronizando...'; }
 
-  Promise.all([
+  return Promise.all([
     cargarPersonalDesdeSheets(),
     cargarMovimientosDesdeSheets()
   ]).then(([personalRemoto, movimientos]) => {
     const personal = cargarPersonal();
 
-    // El estado de Personal remoto es la base, y el último movimiento
-    // registrado en Sheets permite corregir el estado/ubicación si existe.
     const ultimo = {};
     (movimientos || []).forEach(m => {
       if(!m || !m.personal_id || !m.fecha_hora) return;
@@ -1689,13 +1693,20 @@ function sincronizarDashboard(){
     if(cambios) guardarPersonalLS(personal);
     renderDashboard();
 
-    if(estado){
-      estado.textContent = '☁️ Dashboard actualizado desde Sheets';
-      setTimeout(()=>{ if(estado) estado.textContent=''; }, 2500);
+    if(status){
+      status.textContent = '✅ Dashboard actualizado';
+      setTimeout(()=>{ if(status) status.textContent=''; },2500);
     }
+    return true;
   }).catch(() => {
-    // Si falla la conexión, mantiene el Dashboard local sin bloquear la pantalla.
     renderDashboard();
+    if(status){
+      status.textContent='⚠️ No se pudo sincronizar · mostrando datos del equipo';
+      setTimeout(()=>{ if(status) status.textContent=''; },3500);
+    }
+    return false;
+  }).finally(()=>{
+    if(btn){ btn.disabled=false; btn.textContent='🔄 Sincronizar Dashboard'; }
   });
 }
 
