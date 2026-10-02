@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="Mina Verde">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#1a56a0">
-<title>Control de Personal – Mina Verde · v008</title>
+<title>Control de Personal – Mina Verde · v009</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -1221,6 +1221,7 @@ async function nuevaSeleccionPersonal(){
   if(input) input.value='';
   if(resultados) resultados.innerHTML='';
   if(estado) estado.textContent='Presiona “Activar cámara” para escanear una credencial';
+  setTimeout(enfocarLectorIndustrial,120);
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -2417,7 +2418,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if(restaurarSesion()){
     const overlay=document.getElementById('login-overlay'); if(overlay) overlay.classList.add('oculto');
     document.body.classList.remove('sin-sesion'); actualizarUsuarioActivo();
-    cargarPersonalDesdeSheets(); cargarMovimientosDesdeSheets(); actualizarIndicadorPendientes();
+    cargarPersonalDesdeSheets(); cargarMovimientosDesdeSheets(); actualizarIndicadorPendientes(); setTimeout(inicializarLectorIndustrial,250);
   } else {
     mostrarLogin(); setTimeout(()=>document.getElementById('login-usuario')?.focus(),100);
   }
