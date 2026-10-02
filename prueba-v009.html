@@ -72,12 +72,6 @@
   #qr-reader{border-radius:12px;overflow:hidden;background:#000}
   #qr-reader video{border-radius:12px}
   .scan-result{margin-top:10px;padding:12px;border-radius:10px;background:var(--gris-c);font-size:13px;color:var(--texto2);text-align:center}
-  .lark-ticket-inline{margin-top:10px;padding:16px;border-radius:12px;text-align:center;font-size:14px;font-weight:600;line-height:1.5;border:2px solid var(--azul);background:#fff}
-  .lark-ticket-inline.ingreso{border-color:var(--verde);background:var(--verde-c);color:var(--verde)}
-  .lark-ticket-inline.salida{border-color:var(--azul);background:var(--azul-c);color:var(--azul)}
-  .lark-ticket-inline.denegado{border-color:var(--rojo);background:var(--rojo-c);color:var(--rojo)}
-  .lark-ticket-inline .ticket-titulo{font-size:20px;font-weight:800}
-  .lark-ticket-inline .ticket-nombre{font-size:18px;font-weight:800;margin:3px 0}
 
   .resultado-lark-overlay{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.70)}
   .resultado-lark-overlay.visible{display:flex}
@@ -1091,17 +1085,6 @@ function extraerIdLectura(valor){
 
 let resultadoLarkTimer = null;
 
-function mostrarTicketLarkInline(tipo, trabajador, detalleHtml=''){
-  const estado=document.getElementById('lark-estado');
-  if(!estado) return;
-  const titulo = tipo==='ingreso' ? '✅ TICKET DE INGRESO' : (tipo==='salida' ? '↩️ TICKET DE SALIDA' : '⛔ ACCESO DENEGADO');
-  estado.innerHTML='<div class="lark-ticket-inline '+tipo+'">'+
-    '<div class="ticket-titulo">'+titulo+'</div>'+
-    '<div class="ticket-nombre">'+(trabajador?.nombre||'')+'</div>'+
-    detalleHtml+
-    '</div>';
-}
-
 function cerrarResultadoLark(){
   clearTimeout(resultadoLarkTimer);
   const overlay=document.getElementById('resultado-lark-overlay');
@@ -1146,7 +1129,7 @@ function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
   }
 
   clearTimeout(resultadoLarkTimer);
-  resultadoLarkTimer=setTimeout(cerrarResultadoLark,4000);
+  resultadoLarkTimer=setTimeout(cerrarResultadoLark,3200);
 }
 
 async function procesarLectorIndustrial(valor){
@@ -1172,33 +1155,36 @@ async function procesarLectorIndustrial(valor){
     const trabajador = personal.find(p=>String(p.id).trim()===id);
 
     if(!trabajador){
-      const detalle='<div><strong>ID:</strong> '+id+'</div>';
-      mostrarTicketLarkInline('denegado',{nombre:'Credencial no reconocida'},detalle);
+      if(estado) estado.textContent='❌ ID no encontrado: '+id;
       mostrarResultadoLark('denegado',{nombre:'Credencial no reconocida'},'ID: '+id,['Trabajador no encontrado']);
       return;
     }
 
     if(estado) estado.textContent='⏳ Procesando '+trabajador.nombre+'...';
 
+    // SALIDA
     if(trabajador.estado === 'Dentro'){
       const origen = trabajador.ubicacion_actual || 'Interior Mina';
       const resultado = await salirDirecto(trabajador.id);
+      await nuevaSeleccionPersonal();
 
       if(resultado && resultado.ok){
-        const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-        const detalle=
-          '<div><strong>ID:</strong> '+trabajador.id+'</div>'+
-          '<div><strong>Hora:</strong> '+hora+'</div>'+
-          '<div><strong>Salida desde:</strong> '+origen+'</div>'+
-          '<div><strong>Estado:</strong> '+(resultado.sincronizado ? 'Sincronizado' : 'Pendiente de sincronizar')+'</div>';
-        mostrarTicketLarkInline('salida',trabajador,detalle);
-        mostrarResultadoLark('salida',trabajador,detalle);
+        if(estado) estado.textContent='🔵 SALIDA · '+trabajador.nombre;
+        mostrarResultadoLark(
+          'salida',
+          trabajador,
+          '<strong>ID:</strong> '+trabajador.id+
+          '<br><strong>Hora:</strong> '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+
+          '<br><strong>Salida desde:</strong> '+origen+
+          '<br><strong>Estado:</strong> '+(resultado.sincronizado ? 'Sincronizado' : 'Pendiente de sincronizar')
+        );
       }else{
         if(estado) estado.textContent='❌ No se pudo registrar la salida de '+trabajador.nombre;
       }
       return;
     }
 
+    // VALIDACIÓN DOCUMENTAL PARA INGRESO
     const lic=estadoDoc(trabajador.licencia_vence);
     const exa=estadoDoc(trabajador.examen_vence);
     const ind=estadoDoc(trabajador.induccion_vence);
@@ -1210,28 +1196,30 @@ async function procesarLectorIndustrial(valor){
 
     if(motivos.length){
       registrarAlertaAcceso(trabajador,motivos);
-      const detalle='<div>No se registró el ingreso</div><div>'+motivos.join('<br>')+'</div>';
-      mostrarTicketLarkInline('denegado',trabajador,detalle);
+      if(estado) estado.textContent='⛔ ACCESO DENEGADO · '+trabajador.nombre;
       mostrarResultadoLark('denegado',trabajador,'No se registró el ingreso',motivos);
       mostrarToast('⛔ Acceso denegado: documentación vencida');
       return;
     }
 
+    // INGRESO
     const select = document.getElementById('lark-nivel');
     const nivelElegido = select && select.value ? select.value : 'Interior Mina';
     const destino = tipoSeguimiento(trabajador.cargo)==='General' ? 'Interior Mina' : nivelElegido;
 
     const resultado = await ingresarDirecto(trabajador.id,destino);
+    await nuevaSeleccionPersonal();
 
     if(resultado && resultado.ok){
-      const hora=new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-      const detalle=
-        '<div><strong>ID:</strong> '+trabajador.id+'</div>'+
-        '<div><strong>Hora:</strong> '+hora+'</div>'+
-        '<div><strong>Ingreso a:</strong> '+destino+'</div>'+
-        '<div><strong>Estado:</strong> '+(resultado.sincronizado ? 'Sincronizado' : 'Pendiente de sincronizar')+'</div>';
-      mostrarTicketLarkInline('ingreso',trabajador,detalle);
-      mostrarResultadoLark('ingreso',trabajador,detalle);
+      if(estado) estado.textContent='🟢 INGRESO · '+trabajador.nombre+' → '+destino;
+      mostrarResultadoLark(
+        'ingreso',
+        trabajador,
+        '<strong>ID:</strong> '+trabajador.id+
+        '<br><strong>Hora:</strong> '+new Date().toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+
+        '<br><strong>Ingreso a:</strong> '+destino+
+        '<br><strong>Estado:</strong> '+(resultado.sincronizado ? 'Sincronizado' : 'Pendiente de sincronizar')
+      );
     }else{
       if(estado) estado.textContent='❌ No se pudo registrar el ingreso de '+trabajador.nombre;
     }
