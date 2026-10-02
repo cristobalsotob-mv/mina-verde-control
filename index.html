@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="Mina Verde">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#1a56a0">
-<title>Control de Personal – Mina Verde · v007</title>
+<title>Control de Personal – Mina Verde · v008</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -200,10 +200,30 @@
 <div id="page-escaneo" class="page active">
 
   <div id="seleccion-personal">
+    <div class="card" id="lark-card">
+      <div class="card-titulo">🔫 Lector industrial iMin Lark</div>
+      <div class="alerta alerta-verde" style="margin-bottom:10px">
+        <div><strong>Modo directo</strong><br>
+        Un escaneo registra automáticamente <strong>Ingreso</strong> si está fuera y <strong>Salida</strong> si está dentro.</div>
+      </div>
+      <label>Nivel destino para ingresos de personal con nivel fijo</label>
+      <select class="input" id="lark-nivel" onchange="guardarNivelLark()"></select>
+      <label>Lectura del lector industrial</label>
+      <input type="text" class="input" id="lark-input"
+        placeholder="Listo para escanear QR..."
+        inputmode="none" autocomplete="off" autocapitalize="off" spellcheck="false"
+        onkeydown="capturarLarkEnter(event)" oninput="capturarLarkInput()">
+      <div id="lark-estado" class="scan-result">🟢 Lector industrial listo</div>
+      <div style="font-size:11px;color:var(--texto2);margin-top:8px;line-height:1.5">
+        Configura el Lark en salida tipo <strong>teclado</strong>. Si permite sufijo, usa <strong>Enter</strong>.
+        La misma credencial se bloquea 5 segundos para evitar un doble ingreso/salida accidental.
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-titulo">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--azul)" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M18 14h.01M14 18h.01M18 18h.01"/></svg>
-        Escanear credencial
+        Escanear credencial con cámara
       </div>
       <div id="qr-reader"></div>
       <div id="qr-estado" class="scan-result">Presiona “Activar cámara” para escanear una credencial</div>
@@ -695,22 +715,49 @@ function cargarPersonalDesdeSheets(){
 // los dispositivos), y le agrega encima los movimientos locales que
 // todavía no se han podido subir.
 function cargarMovimientosDesdeSheets(){
+  const locales = cargarMovimientos();
   return fetchConSesion('getMovimientos',{limite:'300'})
     .then(r => r.json())
     .then(remoto => {
-      if(!Array.isArray(remoto)) return cargarMovimientos();
+      if(!Array.isArray(remoto)) return locales;
+
       const cola = cargarCola();
-      const pendientesComoMovs = cola.map(c => ({
-        id: c.ts, fecha_hora: c.fecha_hora, personal_id: c.id,
-        evento: c.evento, nivel_origen: c.origen, nivel_destino: c.nivel,
-        usuario: c.usuario || '', usuario_nombre: c.usuario_nombre || '',
+      const idsPendientes = new Set(cola.map(x => String(x.ts)));
+      const pendientesComoMovs = cola.map(item => ({
+        id: item.ts,
+        fecha_hora: item.fecha_hora,
+        personal_id: item.id,
+        evento: item.evento,
+        nivel_origen: item.origen,
+        nivel_destino: item.nivel,
+        usuario: item.usuario || '',
+        usuario_nombre: item.usuario_nombre || '',
         pendiente: true
       }));
-      const combinado = [...pendientesComoMovs, ...remoto];
+
+      const ahora = Date.now();
+      const localesRecientes = locales.filter(m => {
+        if(!m || !m.fecha_hora) return false;
+        if(idsPendientes.has(String(m.id))) return false;
+        const t = new Date(m.fecha_hora).getTime();
+        if(!Number.isFinite(t) || ahora - t > 2*60*1000) return false;
+
+        // Evita duplicar un movimiento que ya apareció en Sheets.
+        return !remoto.some(r => {
+          if(!r || r.personal_id !== m.personal_id || r.evento !== m.evento) return false;
+          if((r.nivel_destino||'') !== (m.nivel_destino||'')) return false;
+          const tr = new Date(r.fecha_hora).getTime();
+          return Number.isFinite(tr) && Math.abs(tr - t) < 60000;
+        });
+      });
+
+      const combinado = [...pendientesComoMovs, ...localesRecientes, ...remoto]
+        .sort((a,b)=>new Date(b.fecha_hora||0)-new Date(a.fecha_hora||0));
+
       guardarMovimientosLS(combinado);
       return combinado;
     })
-    .catch(() => cargarMovimientos());
+    .catch(() => locales);
 }
 
 // Intenta subir un movimiento a Sheets. Si no hay señal, lo deja en cola.
@@ -755,14 +802,36 @@ function sincronizarPendientes(){
 window.addEventListener('online',sincronizarPendientes);
 setInterval(sincronizarPendientes,30000);
 
-function registrarMovimiento(id,evento,origen,destino,estadoResultante,ubicacionResultante){
-  if(!exigirSesion()) return Promise.reject(new Error('Sin sesión'));
+async function registrarMovimiento(id,evento,origen,destino,estadoResultante,ubicacionResultante){
+  if(!exigirSesion()) throw new Error('Sin sesión');
   const u=SESION;
   const movs=cargarMovimientos();
-  const mov={id:Date.now(),fecha_hora:new Date().toISOString(),personal_id:id,evento,nivel_origen:origen,nivel_destino:destino,usuario:u.usuario,usuario_nombre:u.nombre,usuario_rol:u.rol};
-  movs.unshift(mov); guardarMovimientosLS(movs);
+  const mov={
+    id:Date.now(),
+    fecha_hora:new Date().toISOString(),
+    personal_id:id,
+    evento,
+    nivel_origen:origen,
+    nivel_destino:destino,
+    usuario:u.usuario,
+    usuario_nombre:u.nombre,
+    usuario_rol:u.rol
+  };
+
+  movs.unshift(mov);
+  guardarMovimientosLS(movs);
   auditarAccion(evento,id,`${origen||''} → ${destino||''}`);
-  return syncGoogleSheets(mov,estadoResultante,ubicacionResultante);
+
+  // Historial inmediato: no espera a Google Sheets.
+  if(typeof pintarHistorial === 'function') pintarHistorial(movs);
+
+  try{
+    await syncGoogleSheets(mov,estadoResultante,ubicacionResultante);
+    return {ok:true, sincronizado:true, mov};
+  }catch(err){
+    actualizarIndicadorPendientes();
+    return {ok:true, sincronizado:false, mov, error:err};
+  }
 }
 
 // ── Tipo de seguimiento ────────────────────────────────
@@ -897,6 +966,129 @@ let qrActivo = false;
 let qrIniciando = false;
 let qrProcesando = false;
 let pendienteOrigen = 'qr'; // 'qr' o 'buscar'
+
+// ── Lector industrial iMin Lark ─────────────────────────
+let larkProcesando = false;
+let larkTimer = null;
+let larkUltimoId = '';
+let larkUltimoTs = 0;
+const LARK_BLOQUEO_MS = 5000;
+
+function inicializarLectorIndustrial(){
+  const select = document.getElementById('lark-nivel');
+  if(select && !select.options.length){
+    select.innerHTML = NIVELES.map(n=>`<option value="${n}">${n}</option>`).join('');
+    const guardado = localStorage.getItem('lark_nivel_destino');
+    select.value = NIVELES.includes(guardado) ? guardado : 'Interior Mina';
+  }
+  setTimeout(enfocarLectorIndustrial,150);
+}
+
+function guardarNivelLark(){
+  const select = document.getElementById('lark-nivel');
+  if(select) localStorage.setItem('lark_nivel_destino',select.value);
+  enfocarLectorIndustrial();
+}
+
+function enfocarLectorIndustrial(){
+  const page = document.getElementById('page-escaneo');
+  const input = document.getElementById('lark-input');
+  if(!SESION || !page || !page.classList.contains('active') || !input) return;
+  if(document.getElementById('ficha-container')?.style.display === 'block') return;
+  try{ input.focus({preventScroll:true}); }catch(e){ input.focus(); }
+}
+
+function capturarLarkEnter(ev){
+  if(ev.key !== 'Enter') return;
+  ev.preventDefault();
+  clearTimeout(larkTimer);
+  const input = document.getElementById('lark-input');
+  const valor = input ? input.value : '';
+  if(input) input.value='';
+  procesarLectorIndustrial(valor);
+}
+
+function capturarLarkInput(){
+  clearTimeout(larkTimer);
+  larkTimer = setTimeout(()=>{
+    const input = document.getElementById('lark-input');
+    if(!input || !input.value.trim()) return;
+    const valor = input.value;
+    input.value='';
+    procesarLectorIndustrial(valor);
+  },180);
+}
+
+function extraerIdLectura(valor){
+  const texto = String(valor||'').trim();
+  if(!texto) return '';
+  try{
+    const obj=JSON.parse(texto);
+    if(obj && obj.id) return String(obj.id).trim();
+  }catch(e){}
+  return texto;
+}
+
+async function procesarLectorIndustrial(valor){
+  if(larkProcesando) return;
+  const estado = document.getElementById('lark-estado');
+  const id = extraerIdLectura(valor);
+  if(!id){ enfocarLectorIndustrial(); return; }
+
+  const ahora = Date.now();
+  if(id === larkUltimoId && ahora - larkUltimoTs < LARK_BLOQUEO_MS){
+    if(estado) estado.textContent='⚠️ Lectura duplicada ignorada: '+id;
+    enfocarLectorIndustrial();
+    return;
+  }
+
+  if(!exigirSesion()) return;
+  larkProcesando = true;
+  larkUltimoId = id;
+  larkUltimoTs = ahora;
+
+  try{
+    const personal = cargarPersonal();
+    const trabajador = personal.find(p=>String(p.id).trim()===id);
+    if(!trabajador){
+      if(estado) estado.textContent='❌ ID no encontrado: '+id;
+      return;
+    }
+
+    if(estado) estado.textContent='⏳ Procesando '+trabajador.nombre+'...';
+
+    if(trabajador.estado === 'Dentro'){
+      const resultado = await salirDirecto(trabajador.id);
+      await nuevaSeleccionPersonal();
+      if(estado) estado.textContent = resultado && resultado.ok
+        ? '🔴 SALIDA · '+trabajador.nombre+(resultado.sincronizado?'':' · pendiente de sincronizar')
+        : '❌ No se pudo registrar la salida de '+trabajador.nombre;
+      return;
+    }
+
+    const lic=estadoDoc(trabajador.licencia_vence);
+    const exa=estadoDoc(trabajador.examen_vence);
+    const ind=estadoDoc(trabajador.induccion_vence);
+    if(lic.estado==='vencido' || exa.estado==='vencido' || ind.estado==='vencido'){
+      if(estado) estado.textContent='⛔ ACCESO DENEGADO · documentación vencida · '+trabajador.nombre;
+      mostrarToast('⛔ Acceso denegado: documentación vencida');
+      return;
+    }
+
+    const select = document.getElementById('lark-nivel');
+    const nivelElegido = select && select.value ? select.value : 'Interior Mina';
+    const destino = tipoSeguimiento(trabajador.cargo)==='General' ? 'Interior Mina' : nivelElegido;
+
+    const resultado = await ingresarDirecto(trabajador.id,destino);
+    await nuevaSeleccionPersonal();
+    if(estado) estado.textContent = resultado && resultado.ok
+      ? '🟢 INGRESO · '+trabajador.nombre+' → '+destino+(resultado.sincronizado?'':' · pendiente de sincronizar')
+      : '❌ No se pudo registrar el ingreso de '+trabajador.nombre;
+  }finally{
+    larkProcesando=false;
+    setTimeout(enfocarLectorIndustrial,120);
+  }
+}
 
 async function iniciarQR(){
   const estado = document.getElementById('qr-estado');
@@ -1061,33 +1253,56 @@ function salir(id, callbackRender, callbackFicha){
 async function ingresarDirecto(id, ubicacion){
   const personal = cargarPersonal();
   const idx = personal.findIndex(p=>p.id===id);
-  if(idx === -1){ mostrarToast('❌ Trabajador no encontrado en el equipo.'); return; }
+  if(idx === -1){ mostrarToast('❌ Trabajador no encontrado en el equipo.'); return {ok:false}; }
   const p = personal[idx];
+
   try{
-    await registrarMovimiento(id,'Ingreso','Fuera Faena',ubicacion,'Dentro',ubicacion);
+    const resultado = await registrarMovimiento(id,'Ingreso','Fuera Faena',ubicacion,'Dentro',ubicacion);
     personal[idx].estado = 'Dentro';
     personal[idx].ubicacion_actual = ubicacion;
     guardarPersonalLS(personal);
     mostrarFichaEscaneo(personal[idx]);
-    mostrarToast('✅ Ingreso registrado: '+p.nombre+' → '+ubicacion);
+
+    if(resultado.sincronizado){
+      mostrarToast('✅ Ingreso registrado: '+p.nombre+' → '+ubicacion);
+    }else{
+      mostrarToast('✅ Ingreso guardado: '+p.nombre+' · pendiente de sincronizar');
+    }
+
     if(typeof renderDashboard==='function') renderDashboard();
-    cargarMovimientosDesdeSheets();
+    return {ok:true, sincronizado:resultado.sincronizado, trabajador:personal[idx]};
   }catch(err){
     mostrarToast('❌ No se registró el ingreso: '+(err.message||err));
+    return {ok:false,error:err};
   }
 }
 
-function salirDirecto(id){
+async function salirDirecto(id){
   const personal = cargarPersonal();
   const idx = personal.findIndex(p=>p.id===id);
+  if(idx === -1){ mostrarToast('❌ Trabajador no encontrado en el equipo.'); return {ok:false}; }
   const p = personal[idx];
   const origen = p.ubicacion_actual || 'Interior Mina';
-  registrarMovimiento(id,'Salida',origen,'Fuera Faena','Fuera','');
-  personal[idx].estado = 'Fuera';
-  personal[idx].ubicacion_actual = '';
-  guardarPersonalLS(personal);
-  mostrarFichaEscaneo(personal[idx]);
-  mostrarToast(`↩ Salida registrada: ${p.nombre}`);
+
+  try{
+    const resultado = await registrarMovimiento(id,'Salida',origen,'Fuera Faena','Fuera','');
+    personal[idx].estado = 'Fuera';
+    personal[idx].ubicacion_actual = '';
+    guardarPersonalLS(personal);
+    mostrarFichaEscaneo(personal[idx]);
+
+    if(resultado.sincronizado){
+      mostrarToast(`↩ Salida registrada: ${p.nombre}`);
+    }else{
+      mostrarToast(`↩ Salida guardada: ${p.nombre} · pendiente de sincronizar`);
+    }
+
+    if(typeof renderDashboard==='function') renderDashboard();
+    return {ok:true, sincronizado:resultado.sincronizado, trabajador:personal[idx]};
+  }catch(err){
+    mostrarToast('❌ No se registró la salida: '+(err.message||err));
+    return {ok:false,error:err};
+  }
 }
 
 // Mismas funciones para selección manual en la pestaña Escanear
@@ -1585,10 +1800,11 @@ function irTab(nombre, el){
   document.getElementById('page-'+nombre).classList.add('active');
   el.classList.add('active');
 
+  if(nombre==='escaneo'){
+    inicializarLectorIndustrial();
+  }
+
   if(nombre==='dashboard'){
-    // IMPORTANTE: el dashboard no debe depender del localStorage del equipo.
-    // Primero muestra el caché y luego sincroniza el estado real desde Sheets
-    // para que todos los dispositivos vean los mismos movimientos.
     renderDashboard();
     sincronizarDashboard();
   }
@@ -2206,6 +2422,9 @@ document.addEventListener('DOMContentLoaded', function(){
     mostrarLogin(); setTimeout(()=>document.getElementById('login-usuario')?.focus(),100);
   }
 });
+
+// Lector industrial listo al abrir la aplicación.
+document.addEventListener('DOMContentLoaded',()=>setTimeout(inicializarLectorIndustrial,300));
 </script>
 </body>
 </html>
