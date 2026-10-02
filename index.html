@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="Mina Verde">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#1a56a0">
-<title>Control de Personal – Mina Verde · v007</title>
+<title>Control de Personal – Mina Verde · v009</title>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -72,12 +72,26 @@
   #qr-reader{border-radius:12px;overflow:hidden;background:#000}
   #qr-reader video{border-radius:12px}
   .scan-result{margin-top:10px;padding:12px;border-radius:10px;background:var(--gris-c);font-size:13px;color:var(--texto2);text-align:center}
+
+  .resultado-lark-overlay{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.70)}
+  .resultado-lark-overlay.visible{display:flex}
+  .resultado-lark-card{width:min(94vw,460px);background:#fff;border-radius:20px;padding:22px 18px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.35);border:6px solid var(--azul)}
+  .resultado-lark-overlay.ingreso .resultado-lark-card{border-color:var(--verde)}
+  .resultado-lark-overlay.salida .resultado-lark-card{border-color:var(--azul)}
+  .resultado-lark-overlay.denegado .resultado-lark-card{border-color:var(--rojo)}
+  .resultado-lark-icono{font-size:58px;line-height:1;margin-bottom:6px}
+  .resultado-lark-titulo{font-size:27px;font-weight:800;margin-bottom:5px}
+  .resultado-lark-nombre{font-size:20px;font-weight:700;margin-bottom:5px}
+  .resultado-lark-detalle{font-size:14px;color:var(--texto2);line-height:1.45}
+  .resultado-lark-motivos{margin-top:12px;text-align:left;background:var(--rojo-c);color:var(--rojo);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600;line-height:1.6}
   /* DASHBOARD */
   .stat-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--borde)}
   .stat-row:last-child{border-bottom:none}
   .stat-nivel{font-size:14px;font-weight:600}
   .stat-num{font-size:18px;font-weight:700;color:var(--azul)}
-  .stat-nombres{font-size:12px;color:var(--texto2);margin-top:2px}
+  .stat-nombres{font-size:12px;color:var(--texto2);margin-top:4px;display:flex;flex-wrap:wrap;gap:5px}
+  .stat-persona-btn{border:1px solid var(--borde);background:#fff;color:var(--azul);border-radius:8px;padding:5px 8px;font-size:12px;font-weight:600;cursor:pointer}
+  .stat-persona-btn:active{background:var(--azul-c)}
   .total-box{background:var(--azul);color:#fff;border-radius:12px;padding:16px;text-align:center;margin-bottom:10px}
   .total-num{font-size:36px;font-weight:700}
   .total-label{font-size:13px;opacity:.85}
@@ -200,10 +214,28 @@
 <div id="page-escaneo" class="page active">
 
   <div id="seleccion-personal">
+    <div class="card" id="lark-card">
+      <div class="card-titulo">🔫 Lector industrial iMin Lark</div>
+      <div class="alerta alerta-verde" style="margin-bottom:10px">
+        <div><strong>Modo directo</strong><br>
+        Un escaneo registra automáticamente <strong>Ingreso</strong> si está fuera y <strong>Salida</strong> si está dentro.</div>
+      </div>
+      <label>Lectura del lector industrial</label>
+      <input type="text" class="input" id="lark-input"
+        placeholder="Listo para escanear QR..."
+        inputmode="none" autocomplete="off" autocapitalize="off" spellcheck="false"
+        onkeydown="capturarLarkEnter(event)" oninput="capturarLarkInput()">
+      <div id="lark-estado" class="scan-result">🟢 Lector industrial listo</div>
+      <div style="font-size:11px;color:var(--texto2);margin-top:8px;line-height:1.5">
+        Configura el Lark en salida tipo <strong>teclado</strong>. Si permite sufijo, usa <strong>Enter</strong>.
+        La misma credencial se bloquea 5 segundos para evitar un doble ingreso/salida accidental.
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-titulo">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--azul)" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h.01M18 14h.01M14 18h.01M18 18h.01"/></svg>
-        Escanear credencial
+        Escanear credencial con cámara
       </div>
       <div id="qr-reader"></div>
       <div id="qr-estado" class="scan-result">Presiona “Activar cámara” para escanear una credencial</div>
@@ -228,6 +260,10 @@
 <!-- TAB: DASHBOARD -->
 <!-- ══════════════════════════════════════════ -->
 <div id="page-dashboard" class="page">
+  <div class="card" style="padding:10px 12px">
+    <button class="btn btn-azul" id="dashboard-sync-btn" style="margin:0" onclick="sincronizarDashboard()">🔄 Sincronizar Dashboard</button>
+    <div id="dashboard-sync-status" style="font-size:12px;color:var(--texto2);text-align:center;min-height:18px;margin-top:7px"></div>
+  </div>
   <div id="dashboard-content"></div>
 </div>
 
@@ -363,6 +399,7 @@
     <div class="modal-titulo">Seleccione nivel de destino</div>
     <div class="nivel-grid" id="nivel-grid"></div>
     <button class="btn btn-verde" style="margin-top:14px" id="btn-confirmar-nivel" onclick="confirmarIngreso()" disabled>✓ Confirmar ingreso</button>
+    <button class="btn btn-rojo" id="btn-salida-nivel" style="display:none" onclick="registrarSalidaDesdeModal()">↩ Registrar salida de faena</button>
     <button class="btn btn-gris" onclick="cerrarModalNivel()">Cancelar</button>
   </div>
 </div>
@@ -584,6 +621,47 @@ function cargarMovimientos(){
 }
 function guardarMovimientosLS(m){ localStorage.setItem('movimientos_minero', JSON.stringify(m)); }
 
+const ALERTAS_ACCESO_KEY='alertas_acceso_minero';
+const ALERTA_ACCESO_TTL=24*60*60*1000;
+
+function cargarAlertasAcceso(){
+  let arr=[];
+  try{ arr=JSON.parse(localStorage.getItem(ALERTAS_ACCESO_KEY)||'[]'); }catch(e){ arr=[]; }
+  const limite=Date.now()-ALERTA_ACCESO_TTL;
+  const vigentes=(Array.isArray(arr)?arr:[]).filter(a=>a && a.ts>=limite);
+  if(vigentes.length!==(Array.isArray(arr)?arr.length:0)){
+    localStorage.setItem(ALERTAS_ACCESO_KEY,JSON.stringify(vigentes));
+  }
+  return vigentes.sort((a,b)=>b.ts-a.ts);
+}
+
+function registrarAlertaAcceso(trabajador,motivos){
+  const alertas=cargarAlertasAcceso();
+  const alerta={
+    id:'ALERTA-'+Date.now()+'-'+trabajador.id,
+    ts:Date.now(),
+    personal_id:trabajador.id,
+    nombre:trabajador.nombre,
+    cargo:trabajador.cargo||'',
+    motivos:Array.isArray(motivos)?motivos:[String(motivos||'')]
+  };
+  alertas.unshift(alerta);
+  localStorage.setItem(ALERTAS_ACCESO_KEY,JSON.stringify(alertas));
+  if(typeof renderDashboard==='function') renderDashboard();
+  return alerta;
+}
+
+function limpiarAlertaAcceso(id){
+  const alertas=cargarAlertasAcceso().filter(a=>a.id!==id);
+  localStorage.setItem(ALERTAS_ACCESO_KEY,JSON.stringify(alertas));
+  renderDashboard();
+}
+
+function limpiarTodasAlertasAcceso(){
+  localStorage.removeItem(ALERTAS_ACCESO_KEY);
+  renderDashboard();
+}
+
 // ── Identidad del dispositivo (para saber qué portería registró qué) ──
 function idDispositivo(){
   let id = localStorage.getItem('dispositivo_id');
@@ -695,22 +773,49 @@ function cargarPersonalDesdeSheets(){
 // los dispositivos), y le agrega encima los movimientos locales que
 // todavía no se han podido subir.
 function cargarMovimientosDesdeSheets(){
+  const locales = cargarMovimientos();
   return fetchConSesion('getMovimientos',{limite:'300'})
     .then(r => r.json())
     .then(remoto => {
-      if(!Array.isArray(remoto)) return cargarMovimientos();
+      if(!Array.isArray(remoto)) return locales;
+
       const cola = cargarCola();
-      const pendientesComoMovs = cola.map(c => ({
-        id: c.ts, fecha_hora: c.fecha_hora, personal_id: c.id,
-        evento: c.evento, nivel_origen: c.origen, nivel_destino: c.nivel,
-        usuario: c.usuario || '', usuario_nombre: c.usuario_nombre || '',
+      const idsPendientes = new Set(cola.map(x => String(x.ts)));
+      const pendientesComoMovs = cola.map(item => ({
+        id: item.ts,
+        fecha_hora: item.fecha_hora,
+        personal_id: item.id,
+        evento: item.evento,
+        nivel_origen: item.origen,
+        nivel_destino: item.nivel,
+        usuario: item.usuario || '',
+        usuario_nombre: item.usuario_nombre || '',
         pendiente: true
       }));
-      const combinado = [...pendientesComoMovs, ...remoto];
+
+      const ahora = Date.now();
+      const localesRecientes = locales.filter(m => {
+        if(!m || !m.fecha_hora) return false;
+        if(idsPendientes.has(String(m.id))) return false;
+        const t = new Date(m.fecha_hora).getTime();
+        if(!Number.isFinite(t) || ahora - t > 2*60*1000) return false;
+
+        // Evita duplicar un movimiento que ya apareció en Sheets.
+        return !remoto.some(r => {
+          if(!r || r.personal_id !== m.personal_id || r.evento !== m.evento) return false;
+          if((r.nivel_destino||'') !== (m.nivel_destino||'')) return false;
+          const tr = new Date(r.fecha_hora).getTime();
+          return Number.isFinite(tr) && Math.abs(tr - t) < 60000;
+        });
+      });
+
+      const combinado = [...pendientesComoMovs, ...localesRecientes, ...remoto]
+        .sort((a,b)=>new Date(b.fecha_hora||0)-new Date(a.fecha_hora||0));
+
       guardarMovimientosLS(combinado);
       return combinado;
     })
-    .catch(() => cargarMovimientos());
+    .catch(() => locales);
 }
 
 // Intenta subir un movimiento a Sheets. Si no hay señal, lo deja en cola.
@@ -755,14 +860,36 @@ function sincronizarPendientes(){
 window.addEventListener('online',sincronizarPendientes);
 setInterval(sincronizarPendientes,30000);
 
-function registrarMovimiento(id,evento,origen,destino,estadoResultante,ubicacionResultante){
-  if(!exigirSesion()) return Promise.reject(new Error('Sin sesión'));
+async function registrarMovimiento(id,evento,origen,destino,estadoResultante,ubicacionResultante){
+  if(!exigirSesion()) throw new Error('Sin sesión');
   const u=SESION;
   const movs=cargarMovimientos();
-  const mov={id:Date.now(),fecha_hora:new Date().toISOString(),personal_id:id,evento,nivel_origen:origen,nivel_destino:destino,usuario:u.usuario,usuario_nombre:u.nombre,usuario_rol:u.rol};
-  movs.unshift(mov); guardarMovimientosLS(movs);
+  const mov={
+    id:Date.now(),
+    fecha_hora:new Date().toISOString(),
+    personal_id:id,
+    evento,
+    nivel_origen:origen,
+    nivel_destino:destino,
+    usuario:u.usuario,
+    usuario_nombre:u.nombre,
+    usuario_rol:u.rol
+  };
+
+  movs.unshift(mov);
+  guardarMovimientosLS(movs);
   auditarAccion(evento,id,`${origen||''} → ${destino||''}`);
-  return syncGoogleSheets(mov,estadoResultante,ubicacionResultante);
+
+  // Historial inmediato: no espera a Google Sheets.
+  if(typeof pintarHistorial === 'function') pintarHistorial(movs);
+
+  try{
+    await syncGoogleSheets(mov,estadoResultante,ubicacionResultante);
+    return {ok:true, sincronizado:true, mov};
+  }catch(err){
+    actualizarIndicadorPendientes();
+    return {ok:true, sincronizado:false, mov, error:err};
+  }
 }
 
 // ── Tipo de seguimiento ────────────────────────────────
@@ -898,6 +1025,213 @@ let qrIniciando = false;
 let qrProcesando = false;
 let pendienteOrigen = 'qr'; // 'qr' o 'buscar'
 
+// ── Lector industrial iMin Lark ─────────────────────────
+let larkProcesando = false;
+let larkTimer = null;
+let larkUltimoId = '';
+let larkUltimoTs = 0;
+const LARK_BLOQUEO_MS = 5000;
+
+function inicializarLectorIndustrial(){
+  setTimeout(enfocarLectorIndustrial,150);
+}
+
+function guardarNivelLark(){
+  enfocarLectorIndustrial();
+}
+
+function enfocarLectorIndustrial(){
+  const page = document.getElementById('page-escaneo');
+  const input = document.getElementById('lark-input');
+  if(!SESION || !page || !page.classList.contains('active') || !input) return;
+  if(document.getElementById('ficha-container')?.style.display === 'block') return;
+  try{ input.focus({preventScroll:true}); }catch(e){ input.focus(); }
+}
+
+function capturarLarkEnter(ev){
+  if(ev.key !== 'Enter') return;
+  ev.preventDefault();
+  clearTimeout(larkTimer);
+  const input = document.getElementById('lark-input');
+  const valor = input ? input.value : '';
+  if(input) input.value='';
+  procesarLectorIndustrial(valor);
+}
+
+function capturarLarkInput(){
+  clearTimeout(larkTimer);
+  larkTimer = setTimeout(()=>{
+    const input = document.getElementById('lark-input');
+    if(!input || !input.value.trim()) return;
+    const valor = input.value;
+    input.value='';
+    procesarLectorIndustrial(valor);
+  },180);
+}
+
+function extraerIdLectura(valor){
+  const texto = String(valor||'').trim();
+  if(!texto) return '';
+  try{
+    const obj=JSON.parse(texto);
+    if(obj && obj.id) return String(obj.id).trim();
+  }catch(e){}
+  return texto;
+}
+
+
+let resultadoLarkTimer = null;
+
+function cerrarResultadoLark(){
+  clearTimeout(resultadoLarkTimer);
+  const overlay=document.getElementById('resultado-lark-overlay');
+  if(overlay) overlay.classList.remove('visible');
+  const estado=document.getElementById('lark-estado');
+  if(estado) estado.textContent='🟢 Lector industrial listo';
+  setTimeout(enfocarLectorIndustrial,80);
+}
+
+function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
+  const overlay=document.getElementById('resultado-lark-overlay');
+  if(!overlay) return;
+
+  const icono=document.getElementById('resultado-lark-icono');
+  const titulo=document.getElementById('resultado-lark-titulo');
+  const nombre=document.getElementById('resultado-lark-nombre');
+  const detalleEl=document.getElementById('resultado-lark-detalle');
+  const motivosEl=document.getElementById('resultado-lark-motivos');
+
+  overlay.className='resultado-lark-overlay visible '+tipo;
+
+  if(tipo==='ingreso'){
+    icono.textContent='✅';
+    titulo.textContent='INGRESO REGISTRADO';
+  }else if(tipo==='salida'){
+    icono.textContent='↩️';
+    titulo.textContent='SALIDA REGISTRADA';
+  }else{
+    icono.textContent='⛔';
+    titulo.textContent='ACCESO DENEGADO';
+  }
+
+  nombre.textContent = trabajador ? trabajador.nombre : '';
+  detalleEl.textContent = detalle || '';
+
+  if(Array.isArray(motivos) && motivos.length){
+    motivosEl.style.display='block';
+    motivosEl.innerHTML = motivos.map(m=>'• '+m).join('<br>');
+  }else{
+    motivosEl.style.display='none';
+    motivosEl.innerHTML='';
+  }
+
+  clearTimeout(resultadoLarkTimer);
+  resultadoLarkTimer=setTimeout(cerrarResultadoLark,1500);
+}
+
+function estadoEfectivoLark(trabajador){
+  const ahora=Date.now();
+  const movs=cargarMovimientos()
+    .filter(m=>String(m.personal_id).trim()===String(trabajador.id).trim())
+    .sort((a,b)=>new Date(b.fecha_hora||0)-new Date(a.fecha_hora||0));
+  const ult=movs[0];
+  if(ult){
+    const t=new Date(ult.fecha_hora||0).getTime();
+    const reciente=Number.isFinite(t) && (ahora-t)<2*60*1000;
+    if(reciente){
+      if(ult.evento==='Ingreso') return {estado:'Dentro',ubicacion:ult.nivel_destino||trabajador.ubicacion_actual||'Interior Mina'};
+      if(ult.evento==='Salida') return {estado:'Fuera',ubicacion:''};
+      if(ult.evento==='Cambio Nivel') return {estado:'Dentro',ubicacion:ult.nivel_destino||trabajador.ubicacion_actual||'Interior Mina'};
+    }
+  }
+  return {estado:trabajador.estado||'Fuera',ubicacion:trabajador.ubicacion_actual||''};
+}
+
+async function procesarLectorIndustrial(valor){
+  if(larkProcesando) return;
+  const estado = document.getElementById('lark-estado');
+  const id = extraerIdLectura(valor);
+  if(!id){ enfocarLectorIndustrial(); return; }
+
+  const ahora = Date.now();
+  if(id === larkUltimoId && ahora - larkUltimoTs < LARK_BLOQUEO_MS){
+    if(estado) estado.textContent='⚠️ Lectura duplicada ignorada: '+id;
+    enfocarLectorIndustrial();
+    return;
+  }
+
+  if(!exigirSesion()) return;
+  larkProcesando = true;
+  larkUltimoId = id;
+  larkUltimoTs = ahora;
+
+  try{
+    const personal = cargarPersonal();
+    const trabajador = personal.find(p=>String(p.id).trim()===id);
+
+    if(!trabajador){
+      if(estado) estado.textContent='❌ ID no encontrado: '+id;
+      mostrarResultadoLark('denegado',{nombre:'Credencial no reconocida'},'ID: '+id,['Trabajador no encontrado']);
+      await new Promise(r=>setTimeout(r,1500));
+      return;
+    }
+
+    const efectivo=estadoEfectivoLark(trabajador);
+    trabajador.estado=efectivo.estado;
+    trabajador.ubicacion_actual=efectivo.ubicacion;
+
+    if(estado) estado.textContent='⏳ Registrando '+trabajador.nombre+'...';
+
+    if(efectivo.estado === 'Dentro'){
+      const origen = efectivo.ubicacion || 'Interior Mina';
+      const resultado = await salirDirecto(trabajador.id);
+
+      if(resultado && resultado.ok){
+        await nuevaSeleccionPersonal();
+        if(estado) estado.textContent='🔵 SALIDA · '+trabajador.nombre;
+        mostrarResultadoLark('salida',trabajador,'Salida desde '+origen+(resultado.sincronizado ? '' : ' · pendiente de sincronizar'));
+        await new Promise(r=>setTimeout(r,1500));
+      }else{
+        if(estado) estado.textContent='❌ No se pudo registrar la salida de '+trabajador.nombre;
+      }
+      return;
+    }
+
+    const lic=estadoDoc(trabajador.licencia_vence);
+    const exa=estadoDoc(trabajador.examen_vence);
+    const ind=estadoDoc(trabajador.induccion_vence);
+    const motivos=[];
+
+    if(lic.estado==='vencido') motivos.push('Licencia vencida'+(trabajador.licencia_vence ? ' · '+formatFecha(trabajador.licencia_vence) : ''));
+    if(exa.estado==='vencido') motivos.push('Examen médico vencido'+(trabajador.examen_vence ? ' · '+formatFecha(trabajador.examen_vence) : ''));
+    if(ind.estado==='vencido') motivos.push('Inducción vencida'+(trabajador.induccion_vence ? ' · '+formatFecha(trabajador.induccion_vence) : ''));
+
+    if(motivos.length){
+      registrarAlertaAcceso(trabajador,motivos);
+      if(estado) estado.textContent='⛔ ACCESO DENEGADO · '+trabajador.nombre;
+      mostrarResultadoLark('denegado',trabajador,'No se registró el ingreso',motivos);
+      mostrarToast('⛔ Acceso denegado: documentación vencida');
+      await new Promise(r=>setTimeout(r,1500));
+      return;
+    }
+
+    const destino='Interior Mina';
+    const resultado = await ingresarDirecto(trabajador.id,destino);
+
+    if(resultado && resultado.ok){
+      await nuevaSeleccionPersonal();
+      if(estado) estado.textContent='🟢 INGRESO · '+trabajador.nombre+' → '+destino;
+      mostrarResultadoLark('ingreso',trabajador,'Ingreso a '+destino+(resultado.sincronizado ? '' : ' · pendiente de sincronizar'));
+      await new Promise(r=>setTimeout(r,1500));
+    }else{
+      if(estado) estado.textContent='❌ No se pudo registrar el ingreso de '+trabajador.nombre;
+    }
+  }finally{
+    larkProcesando=false;
+    setTimeout(enfocarLectorIndustrial,120);
+  }
+}
+
 async function iniciarQR(){
   const estado = document.getElementById('qr-estado');
   const btnIniciar = document.getElementById('btn-iniciar-qr');
@@ -1029,6 +1363,7 @@ async function nuevaSeleccionPersonal(){
   if(input) input.value='';
   if(resultados) resultados.innerHTML='';
   if(estado) estado.textContent='Presiona “Activar cámara” para escanear una credencial';
+  setTimeout(enfocarLectorIndustrial,120);
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
@@ -1061,33 +1396,56 @@ function salir(id, callbackRender, callbackFicha){
 async function ingresarDirecto(id, ubicacion){
   const personal = cargarPersonal();
   const idx = personal.findIndex(p=>p.id===id);
-  if(idx === -1){ mostrarToast('❌ Trabajador no encontrado en el equipo.'); return; }
+  if(idx === -1){ mostrarToast('❌ Trabajador no encontrado en el equipo.'); return {ok:false}; }
   const p = personal[idx];
+
   try{
-    await registrarMovimiento(id,'Ingreso','Fuera Faena',ubicacion,'Dentro',ubicacion);
+    const resultado = await registrarMovimiento(id,'Ingreso','Fuera Faena',ubicacion,'Dentro',ubicacion);
     personal[idx].estado = 'Dentro';
     personal[idx].ubicacion_actual = ubicacion;
     guardarPersonalLS(personal);
     mostrarFichaEscaneo(personal[idx]);
-    mostrarToast('✅ Ingreso registrado: '+p.nombre+' → '+ubicacion);
+
+    if(resultado.sincronizado){
+      mostrarToast('✅ Ingreso registrado: '+p.nombre+' → '+ubicacion);
+    }else{
+      mostrarToast('✅ Ingreso guardado: '+p.nombre+' · pendiente de sincronizar');
+    }
+
     if(typeof renderDashboard==='function') renderDashboard();
-    cargarMovimientosDesdeSheets();
+    return {ok:true, sincronizado:resultado.sincronizado, trabajador:personal[idx]};
   }catch(err){
     mostrarToast('❌ No se registró el ingreso: '+(err.message||err));
+    return {ok:false,error:err};
   }
 }
 
-function salirDirecto(id){
+async function salirDirecto(id){
   const personal = cargarPersonal();
   const idx = personal.findIndex(p=>p.id===id);
+  if(idx === -1){ mostrarToast('❌ Trabajador no encontrado en el equipo.'); return {ok:false}; }
   const p = personal[idx];
   const origen = p.ubicacion_actual || 'Interior Mina';
-  registrarMovimiento(id,'Salida',origen,'Fuera Faena','Fuera','');
-  personal[idx].estado = 'Fuera';
-  personal[idx].ubicacion_actual = '';
-  guardarPersonalLS(personal);
-  mostrarFichaEscaneo(personal[idx]);
-  mostrarToast(`↩ Salida registrada: ${p.nombre}`);
+
+  try{
+    const resultado = await registrarMovimiento(id,'Salida',origen,'Fuera Faena','Fuera','');
+    personal[idx].estado = 'Fuera';
+    personal[idx].ubicacion_actual = '';
+    guardarPersonalLS(personal);
+    mostrarFichaEscaneo(personal[idx]);
+
+    if(resultado.sincronizado){
+      mostrarToast(`↩ Salida registrada: ${p.nombre}`);
+    }else{
+      mostrarToast(`↩ Salida guardada: ${p.nombre} · pendiente de sincronizar`);
+    }
+
+    if(typeof renderDashboard==='function') renderDashboard();
+    return {ok:true, sincronizado:resultado.sincronizado, trabajador:personal[idx]};
+  }catch(err){
+    mostrarToast('❌ No se registró la salida: '+(err.message||err));
+    return {ok:false,error:err};
+  }
 }
 
 // Mismas funciones para selección manual en la pestaña Escanear
@@ -1128,11 +1486,18 @@ function abrirModalNivel(id, origen){
   pendienteId = id;
   pendienteNivel = null;
   pendienteOrigen = origen || 'qr';
+  modoModal = 'ingreso';
+  const titulo=document.querySelector('#modal-nivel .modal-titulo');
+  if(titulo) titulo.textContent='Seleccione nivel de destino';
   const grid = document.getElementById('nivel-grid');
   grid.innerHTML = NIVELES.filter(n=>n!=='Interior Mina').map(n=>
     `<div class="nivel-btn" onclick="seleccionarNivel('${n}',this)">${n}</div>`
   ).join('');
-  document.getElementById('btn-confirmar-nivel').disabled = true;
+  const btn=document.getElementById('btn-confirmar-nivel');
+  btn.textContent='✓ Confirmar ingreso';
+  btn.disabled = true;
+  const salida=document.getElementById('btn-salida-nivel');
+  if(salida){ salida.style.display='none'; salida.disabled=false; salida.textContent='↩ Registrar salida de faena'; }
   document.getElementById('modal-nivel').classList.add('active');
 }
 
@@ -1153,6 +1518,12 @@ function confirmarIngreso(){
 
 function cerrarModalNivel(){
   document.getElementById('modal-nivel').classList.remove('active');
+  const titulo=document.querySelector('#modal-nivel .modal-titulo');
+  if(titulo) titulo.textContent='Seleccione nivel de destino';
+  const btn=document.getElementById('btn-confirmar-nivel');
+  if(btn){ btn.textContent='✓ Confirmar ingreso'; btn.disabled=true; }
+  const salida=document.getElementById('btn-salida-nivel');
+  if(salida){ salida.style.display='none'; salida.disabled=false; salida.textContent='↩ Registrar salida de faena'; }
 }
 
 let modoModal = 'ingreso'; // 'ingreso' o 'cambio'
@@ -1164,30 +1535,117 @@ function abrirModalCambioNivel(id, origen){
   modoModal = 'cambio';
   const personal = cargarPersonal();
   const p = personal.find(x=>x.id===id);
+  if(!p || p.estado!=='Dentro'){ mostrarToast('⚠️ El trabajador no está dentro de faena'); return; }
   const grid = document.getElementById('nivel-grid');
-  grid.innerHTML = NIVELES.filter(n=>n!=='Interior Mina').map(n=>
-    `<div class="nivel-btn ${p && p.ubicacion_actual===n?'selected':''}" onclick="seleccionarNivel('${n}',this)">${n}</div>`
+  const opciones=NIVELES.filter(n=>n!==p.ubicacion_actual);
+  grid.innerHTML = opciones.map(n=>
+    `<div class="nivel-btn" onclick="seleccionarNivel('${n}',this)">${n}</div>`
   ).join('');
-  document.getElementById('btn-confirmar-nivel').textContent = '📍 Confirmar cambio de ubicación';
-  document.getElementById('btn-confirmar-nivel').disabled = false;
+  const titulo=document.querySelector('#modal-nivel .modal-titulo');
+  if(titulo) titulo.textContent='Reubicar a '+p.nombre;
+  const btn=document.getElementById('btn-confirmar-nivel');
+  btn.textContent = '📍 Confirmar cambio de ubicación';
+  btn.disabled = true;
+  const salida=document.getElementById('btn-salida-nivel');
+  if(salida){
+    salida.style.display='block';
+    salida.disabled=false;
+    salida.textContent='↩ Registrar salida de '+p.nombre;
+  }
   document.getElementById('modal-nivel').classList.add('active');
 }
 
-function confirmarCambioNivel(){
-  if(!pendienteId || !pendienteNivel) return;
-  const personal = cargarPersonal();
-  const idx = personal.findIndex(p=>p.id===pendienteId);
+async function registrarSalidaDesdeModal(){
+  if(!pendienteId) return;
+  const id=pendienteId;
+  const origenUI=pendienteOrigen;
+  const personal=cargarPersonal();
+  const idx=personal.findIndex(p=>p.id===id);
   if(idx===-1) return;
-  const origen = personal[idx].ubicacion_actual;
-  personal[idx].ubicacion_actual = pendienteNivel;
+  const p=personal[idx];
+  if(p.estado!=='Dentro'){
+    mostrarToast('ℹ️ El trabajador ya está fuera de faena');
+    cerrarModalNivel();
+    if(origenUI==='dashboard') renderDashboard();
+    return;
+  }
+
+  const origen=p.ubicacion_actual || 'Interior Mina';
+  const btnCambio=document.getElementById('btn-confirmar-nivel');
+  const btnSalida=document.getElementById('btn-salida-nivel');
+  if(btnCambio) btnCambio.disabled=true;
+  if(btnSalida){ btnSalida.disabled=true; btnSalida.textContent='⏳ Registrando salida...'; }
+
+  const resultado=await registrarMovimiento(id,'Salida',origen,'Fuera Faena','Fuera','');
+  if(!resultado || !resultado.ok){
+    if(btnCambio) btnCambio.disabled=false;
+    if(btnSalida){ btnSalida.disabled=false; btnSalida.textContent='↩ Registrar salida de '+p.nombre; }
+    mostrarToast('❌ No se pudo registrar la salida');
+    return;
+  }
+
+  personal[idx].estado='Fuera';
+  personal[idx].ubicacion_actual='';
   guardarPersonalLS(personal);
-  registrarMovimiento(pendienteId, 'Cambio Nivel', origen, pendienteNivel, 'Dentro', pendienteNivel);
+
+  cerrarModalNivel();
+  modoModal='ingreso';
+  pendienteId=null;
+  pendienteNivel=null;
+
+  if(origenUI==='dashboard'){
+    renderDashboard();
+  }else if(origenUI==='buscar'){
+    mostrarFichaBuscar2(id);
+  }else{
+    const actualizado=cargarPersonal().find(x=>x.id===id);
+    if(actualizado) mostrarFichaEscaneo(actualizado);
+  }
+
+  mostrarToast('↩ Salida registrada: '+p.nombre+(resultado.sincronizado?'':' · pendiente de sincronizar'));
+}
+
+async function confirmarCambioNivel(){
+  if(!pendienteId || !pendienteNivel) return;
+  const id=pendienteId;
+  const destino=pendienteNivel;
+  const origenUI=pendienteOrigen;
+  const personal = cargarPersonal();
+  const idx = personal.findIndex(p=>p.id===id);
+  if(idx===-1) return;
+  const origen = personal[idx].ubicacion_actual || 'Interior Mina';
+  if(origen===destino){ mostrarToast('ℹ️ Ya se encuentra en esa ubicación'); return; }
+
+  const btn=document.getElementById('btn-confirmar-nivel');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Registrando cambio...'; }
+
+  const resultado=await registrarMovimiento(id,'Cambio Nivel',origen,destino,'Dentro',destino);
+  if(!resultado || !resultado.ok){
+    if(btn){ btn.disabled=false; btn.textContent='📍 Confirmar cambio de ubicación'; }
+    mostrarToast('❌ No se pudo registrar el cambio');
+    return;
+  }
+
+  personal[idx].estado='Dentro';
+  personal[idx].ubicacion_actual=destino;
+  guardarPersonalLS(personal);
+
   cerrarModalNivel();
   document.getElementById('btn-confirmar-nivel').textContent = '✓ Confirmar ingreso';
   modoModal = 'ingreso';
-  if(pendienteOrigen==='buscar') mostrarFichaBuscar2(pendienteId);
-  else { const personal = cargarPersonal(); const p = personal.find(x=>x.id===pendienteId); if(p) mostrarFichaEscaneo(p); }
-  mostrarToast('📍 Ubicación actualizada');
+  pendienteId=null;
+  pendienteNivel=null;
+
+  if(origenUI==='dashboard'){
+    renderDashboard();
+  }else if(origenUI==='buscar'){
+    mostrarFichaBuscar2(id);
+  }else{
+    const actualizado=cargarPersonal().find(x=>x.id===id);
+    if(actualizado) mostrarFichaEscaneo(actualizado);
+  }
+
+  mostrarToast('📍 Reubicado: '+origen+' → '+destino+(resultado.sincronizado?'':' · pendiente de sincronizar'));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1255,17 +1713,17 @@ function mostrarFichaBuscar(trabajador){
 // Aquí se sincronizan Personal + Movimientos y se aplica el último movimiento
 // conocido de cada trabajador antes de volver a pintar el Dashboard.
 function sincronizarDashboard(){
-  const estado = document.getElementById('sync-estado');
-  if(estado) estado.textContent = '🔄 Actualizando Dashboard...';
+  const status = document.getElementById('dashboard-sync-status');
+  const btn = document.getElementById('dashboard-sync-btn');
+  if(status) status.textContent = '🔄 Sincronizando con Google Sheets...';
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Sincronizando...'; }
 
-  Promise.all([
+  return Promise.all([
     cargarPersonalDesdeSheets(),
     cargarMovimientosDesdeSheets()
   ]).then(([personalRemoto, movimientos]) => {
     const personal = cargarPersonal();
 
-    // El estado de Personal remoto es la base, y el último movimiento
-    // registrado en Sheets permite corregir el estado/ubicación si existe.
     const ultimo = {};
     (movimientos || []).forEach(m => {
       if(!m || !m.personal_id || !m.fecha_hora) return;
@@ -1305,13 +1763,20 @@ function sincronizarDashboard(){
     if(cambios) guardarPersonalLS(personal);
     renderDashboard();
 
-    if(estado){
-      estado.textContent = '☁️ Dashboard actualizado desde Sheets';
-      setTimeout(()=>{ if(estado) estado.textContent=''; }, 2500);
+    if(status){
+      status.textContent = '✅ Dashboard actualizado';
+      setTimeout(()=>{ if(status) status.textContent=''; },2500);
     }
+    return true;
   }).catch(() => {
-    // Si falla la conexión, mantiene el Dashboard local sin bloquear la pantalla.
     renderDashboard();
+    if(status){
+      status.textContent='⚠️ No se pudo sincronizar · mostrando datos del equipo';
+      setTimeout(()=>{ if(status) status.textContent=''; },3500);
+    }
+    return false;
+  }).finally(()=>{
+    if(btn){ btn.disabled=false; btn.textContent='🔄 Sincronizar Dashboard'; }
   });
 }
 
@@ -1324,10 +1789,7 @@ function renderDashboard(){
   NIVELES.forEach(n=>{ porNivel[n]=[]; });
   dentro.forEach(p=>{ if(porNivel[p.ubicacion_actual]) porNivel[p.ubicacion_actual].push(p); });
 
-  const alertas = personal.filter(p=>{
-    const docs = [p.licencia_vence, p.examen_vence, p.induccion_vence];
-    return docs.some(d=>{ const s=estadoDoc(d); return s.estado==='vencido'||s.estado==='proximo'; });
-  });
+  const alertas = cargarAlertasAcceso();
 
   let html = `
     <div class="total-box">
@@ -1342,7 +1804,7 @@ function renderDashboard(){
         return `<div class="stat-row">
           <div>
             <div class="stat-nivel">📍 ${n}</div>
-            ${personas.length ? `<div class="stat-nombres">${personas.map(p=>p.nombre).join(', ')}</div>` : ''}
+            ${personas.length ? `<div class="stat-nombres">${personas.map(p=>`<button class="stat-persona-btn" onclick="abrirModalCambioNivel('${String(p.id).replace(/'/g,"\\'")}','dashboard')">📍 ${p.nombre}</button>`).join('')}</div>` : ''}
           </div>
           <div class="stat-num">${personas.length}</div>
         </div>`;
@@ -1352,17 +1814,23 @@ function renderDashboard(){
 
   if(alertas.length){
     html += `<div class="card">
-      <div class="card-titulo" style="color:var(--rojo)">⚠️ Alertas documentales</div>
-      ${alertas.map(p=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px">
+        <div class="card-titulo" style="color:var(--rojo);margin:0">⚠️ Rechazos de acceso · últimas 24 h</div>
+        <button class="btn btn-sm btn-gris" style="margin:0" onclick="limpiarTodasAlertasAcceso()">Limpiar todas</button>
+      </div>
+      ${alertas.map(a=>`
         <div class="mov-item">
-          <div class="mov-nombre">${p.nombre}</div>
-          <div class="mov-detalle">${p.cargo} · ${p.id}</div>
-          ${['licencia_vence','examen_vence','induccion_vence'].map(k=>{
-            const s=estadoDoc(p[k]);
-            if(s.estado==='vigente') return '';
-            const label={'licencia_vence':'Licencia','examen_vence':'Examen','induccion_vence':'Inducción'}[k];
-            return `<span class="badge ${classBadge(s.estado)}" style="margin-top:4px;margin-right:4px">${label}: ${s.label}</span>`;
-          }).join('')}
+          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+            <div style="min-width:0">
+              <div class="mov-nombre">⛔ ${a.nombre}</div>
+              <div class="mov-detalle">${a.cargo||''}${a.personal_id?' · '+a.personal_id:''}</div>
+              <div class="mov-detalle">${new Date(a.ts).toLocaleString('es-CL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>
+              <div style="margin-top:5px">
+                ${(a.motivos||[]).map(m=>`<span class="badge badge-rojo" style="margin:2px 4px 2px 0">${m}</span>`).join('')}
+              </div>
+            </div>
+            <button class="btn btn-sm btn-gris" style="margin:0;white-space:nowrap" onclick="limpiarAlertaAcceso('${a.id}')">Limpiar</button>
+          </div>
         </div>
       `).join('')}
     </div>`;
@@ -1585,10 +2053,11 @@ function irTab(nombre, el){
   document.getElementById('page-'+nombre).classList.add('active');
   el.classList.add('active');
 
+  if(nombre==='escaneo'){
+    inicializarLectorIndustrial();
+  }
+
   if(nombre==='dashboard'){
-    // IMPORTANTE: el dashboard no debe depender del localStorage del equipo.
-    // Primero muestra el caché y luego sincroniza el estado real desde Sheets
-    // para que todos los dispositivos vean los mismos movimientos.
     renderDashboard();
     sincronizarDashboard();
   }
@@ -2201,11 +2670,24 @@ document.addEventListener('DOMContentLoaded', function(){
   if(restaurarSesion()){
     const overlay=document.getElementById('login-overlay'); if(overlay) overlay.classList.add('oculto');
     document.body.classList.remove('sin-sesion'); actualizarUsuarioActivo();
-    cargarPersonalDesdeSheets(); cargarMovimientosDesdeSheets(); actualizarIndicadorPendientes();
+    cargarPersonalDesdeSheets(); cargarMovimientosDesdeSheets(); actualizarIndicadorPendientes(); setTimeout(inicializarLectorIndustrial,250);
   } else {
     mostrarLogin(); setTimeout(()=>document.getElementById('login-usuario')?.focus(),100);
   }
 });
+
+// Lector industrial listo al abrir la aplicación.
+document.addEventListener('DOMContentLoaded',()=>setTimeout(inicializarLectorIndustrial,300));
 </script>
+
+<div id="resultado-lark-overlay" class="resultado-lark-overlay" onclick="cerrarResultadoLark()">
+  <div class="resultado-lark-card" onclick="event.stopPropagation()">
+    <div id="resultado-lark-icono" class="resultado-lark-icono"></div>
+    <div id="resultado-lark-titulo" class="resultado-lark-titulo"></div>
+    <div id="resultado-lark-nombre" class="resultado-lark-nombre"></div>
+    <div id="resultado-lark-detalle" class="resultado-lark-detalle"></div>
+    <div id="resultado-lark-motivos" class="resultado-lark-motivos" style="display:none"></div>
+  </div>
+</div>
 </body>
 </html>
