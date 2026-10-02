@@ -1129,7 +1129,7 @@ function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
   }
 
   clearTimeout(resultadoLarkTimer);
-  resultadoLarkTimer=setTimeout(cerrarResultadoLark,2400);
+  resultadoLarkTimer=setTimeout(cerrarResultadoLark,1500);
 }
 
 async function procesarLectorIndustrial(valor){
@@ -1162,20 +1162,21 @@ async function procesarLectorIndustrial(valor){
 
     if(estado) estado.textContent='⏳ Procesando '+trabajador.nombre+'...';
 
-    // SALIDA
+    // SALIDA: la función comienza y guarda el movimiento local antes de esperar Sheets.
     if(trabajador.estado === 'Dentro'){
       const origen = trabajador.ubicacion_actual || 'Interior Mina';
-      const resultado = await salirDirecto(trabajador.id);
+      const promesaSalida = salirDirecto(trabajador.id);
+
+      // Confirmación visual inmediata, sin esperar a Sheets.
+      mostrarResultadoLark('salida',trabajador,'Salida desde '+origen);
+
+      const resultado = await promesaSalida;
       await nuevaSeleccionPersonal();
 
       if(resultado && resultado.ok){
         if(estado) estado.textContent='🔵 SALIDA · '+trabajador.nombre;
-        mostrarResultadoLark(
-          'salida',
-          trabajador,
-          'Salida desde '+origen+(resultado.sincronizado ? '' : ' · pendiente de sincronizar')
-        );
       }else{
+        cerrarResultadoLark();
         if(estado) estado.textContent='❌ No se pudo registrar la salida de '+trabajador.nombre;
       }
       return;
@@ -1199,22 +1200,23 @@ async function procesarLectorIndustrial(valor){
       return;
     }
 
-    // INGRESO
+    // INGRESO: guarda localmente primero; ticket inmediato; Sheets continúa sincronizando.
     const select = document.getElementById('lark-nivel');
     const nivelElegido = select && select.value ? select.value : 'Interior Mina';
     const destino = tipoSeguimiento(trabajador.cargo)==='General' ? 'Interior Mina' : nivelElegido;
 
-    const resultado = await ingresarDirecto(trabajador.id,destino);
+    const promesaIngreso = ingresarDirecto(trabajador.id,destino);
+
+    // Confirmación visual inmediata, sin esperar a Sheets.
+    mostrarResultadoLark('ingreso',trabajador,'Ingreso a '+destino);
+
+    const resultado = await promesaIngreso;
     await nuevaSeleccionPersonal();
 
     if(resultado && resultado.ok){
       if(estado) estado.textContent='🟢 INGRESO · '+trabajador.nombre+' → '+destino;
-      mostrarResultadoLark(
-        'ingreso',
-        trabajador,
-        'Ingreso a '+destino+(resultado.sincronizado ? '' : ' · pendiente de sincronizar')
-      );
     }else{
+      cerrarResultadoLark();
       if(estado) estado.textContent='❌ No se pudo registrar el ingreso de '+trabajador.nombre;
     }
   }finally{
