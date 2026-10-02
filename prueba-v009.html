@@ -1631,12 +1631,7 @@ function renderDashboard(){
   NIVELES.forEach(n=>{ porNivel[n]=[]; });
   dentro.forEach(p=>{ if(porNivel[p.ubicacion_actual]) porNivel[p.ubicacion_actual].push(p); });
 
-  const alertas = personal.filter(p=>{
-    const docs = [p.licencia_vence, p.examen_vence, p.induccion_vence];
-    return docs.some(d=>{ const s=estadoDoc(d); return s.estado==='vencido'||s.estado==='proximo'; });
-  });
-
-  let html = `
+  const html = `
     <div class="total-box">
       <div class="total-num">${total}</div>
       <div class="total-label">personas dentro de faena</div>
@@ -1656,24 +1651,6 @@ function renderDashboard(){
       }).join('')}
     </div>
   `;
-
-  if(alertas.length){
-    html += `<div class="card">
-      <div class="card-titulo" style="color:var(--rojo)">⚠️ Alertas documentales</div>
-      ${alertas.map(p=>`
-        <div class="mov-item">
-          <div class="mov-nombre">${p.nombre}</div>
-          <div class="mov-detalle">${p.cargo} · ${p.id}</div>
-          ${['licencia_vence','examen_vence','induccion_vence'].map(k=>{
-            const s=estadoDoc(p[k]);
-            if(s.estado==='vigente') return '';
-            const label={'licencia_vence':'Licencia','examen_vence':'Examen','induccion_vence':'Inducción'}[k];
-            return `<span class="badge ${classBadge(s.estado)}" style="margin-top:4px;margin-right:4px">${label}: ${s.label}</span>`;
-          }).join('')}
-        </div>
-      `).join('')}
-    </div>`;
-  }
 
   document.getElementById('dashboard-content').innerHTML = html;
 }
