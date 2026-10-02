@@ -72,6 +72,18 @@
   #qr-reader{border-radius:12px;overflow:hidden;background:#000}
   #qr-reader video{border-radius:12px}
   .scan-result{margin-top:10px;padding:12px;border-radius:10px;background:var(--gris-c);font-size:13px;color:var(--texto2);text-align:center}
+
+  .resultado-lark-overlay{position:fixed;inset:0;z-index:1400;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(15,23,42,.70)}
+  .resultado-lark-overlay.visible{display:flex}
+  .resultado-lark-card{width:min(94vw,460px);background:#fff;border-radius:20px;padding:22px 18px;text-align:center;box-shadow:0 24px 70px rgba(0,0,0,.35);border:6px solid var(--azul)}
+  .resultado-lark-overlay.ingreso .resultado-lark-card{border-color:var(--verde)}
+  .resultado-lark-overlay.salida .resultado-lark-card{border-color:var(--azul)}
+  .resultado-lark-overlay.denegado .resultado-lark-card{border-color:var(--rojo)}
+  .resultado-lark-icono{font-size:58px;line-height:1;margin-bottom:6px}
+  .resultado-lark-titulo{font-size:27px;font-weight:800;margin-bottom:5px}
+  .resultado-lark-nombre{font-size:20px;font-weight:700;margin-bottom:5px}
+  .resultado-lark-detalle{font-size:14px;color:var(--texto2);line-height:1.45}
+  .resultado-lark-motivos{margin-top:12px;text-align:left;background:var(--rojo-c);color:var(--rojo);border-radius:10px;padding:10px 12px;font-size:14px;font-weight:600;line-height:1.6}
   /* DASHBOARD */
   .stat-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--borde)}
   .stat-row:last-child{border-bottom:none}
@@ -1029,6 +1041,50 @@ function extraerIdLectura(valor){
   return texto;
 }
 
+
+let resultadoLarkTimer = null;
+
+function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
+  const overlay=document.getElementById('resultado-lark-overlay');
+  if(!overlay) return;
+
+  const icono=document.getElementById('resultado-lark-icono');
+  const titulo=document.getElementById('resultado-lark-titulo');
+  const nombre=document.getElementById('resultado-lark-nombre');
+  const detalleEl=document.getElementById('resultado-lark-detalle');
+  const motivosEl=document.getElementById('resultado-lark-motivos');
+
+  overlay.className='resultado-lark-overlay visible '+tipo;
+
+  if(tipo==='ingreso'){
+    icono.textContent='✅';
+    titulo.textContent='INGRESO REGISTRADO';
+  }else if(tipo==='salida'){
+    icono.textContent='↩️';
+    titulo.textContent='SALIDA REGISTRADA';
+  }else{
+    icono.textContent='⛔';
+    titulo.textContent='ACCESO DENEGADO';
+  }
+
+  nombre.textContent = trabajador ? trabajador.nombre : '';
+  detalleEl.textContent = detalle || '';
+
+  if(Array.isArray(motivos) && motivos.length){
+    motivosEl.style.display='block';
+    motivosEl.innerHTML = motivos.map(m=>'• '+m).join('<br>');
+  }else{
+    motivosEl.style.display='none';
+    motivosEl.innerHTML='';
+  }
+
+  clearTimeout(resultadoLarkTimer);
+  resultadoLarkTimer=setTimeout(()=>{
+    overlay.classList.remove('visible');
+    setTimeout(enfocarLectorIndustrial,80);
+  },2600);
+}
+
 async function procesarLectorIndustrial(valor){
   if(larkProcesando) return;
   const estado = document.getElementById('lark-estado');
@@ -1050,40 +1106,69 @@ async function procesarLectorIndustrial(valor){
   try{
     const personal = cargarPersonal();
     const trabajador = personal.find(p=>String(p.id).trim()===id);
+
     if(!trabajador){
       if(estado) estado.textContent='❌ ID no encontrado: '+id;
+      mostrarResultadoLark('denegado',{nombre:'Credencial no reconocida'},'ID: '+id,['Trabajador no encontrado']);
       return;
     }
 
     if(estado) estado.textContent='⏳ Procesando '+trabajador.nombre+'...';
 
+    // SALIDA
     if(trabajador.estado === 'Dentro'){
+      const origen = trabajador.ubicacion_actual || 'Interior Mina';
       const resultado = await salirDirecto(trabajador.id);
       await nuevaSeleccionPersonal();
-      if(estado) estado.textContent = resultado && resultado.ok
-        ? '🔴 SALIDA · '+trabajador.nombre+(resultado.sincronizado?'':' · pendiente de sincronizar')
-        : '❌ No se pudo registrar la salida de '+trabajador.nombre;
+
+      if(resultado && resultado.ok){
+        if(estado) estado.textContent='🔵 SALIDA · '+trabajador.nombre;
+        mostrarResultadoLark(
+          'salida',
+          trabajador,
+          'Salida desde '+origen+(resultado.sincronizado ? '' : ' · pendiente de sincronizar')
+        );
+      }else{
+        if(estado) estado.textContent='❌ No se pudo registrar la salida de '+trabajador.nombre;
+      }
       return;
     }
 
+    // VALIDACIÓN DOCUMENTAL PARA INGRESO
     const lic=estadoDoc(trabajador.licencia_vence);
     const exa=estadoDoc(trabajador.examen_vence);
     const ind=estadoDoc(trabajador.induccion_vence);
-    if(lic.estado==='vencido' || exa.estado==='vencido' || ind.estado==='vencido'){
-      if(estado) estado.textContent='⛔ ACCESO DENEGADO · documentación vencida · '+trabajador.nombre;
+    const motivos=[];
+
+    if(lic.estado==='vencido') motivos.push('Licencia vencida'+(trabajador.licencia_vence ? ' · '+formatFecha(trabajador.licencia_vence) : ''));
+    if(exa.estado==='vencido') motivos.push('Examen médico vencido'+(trabajador.examen_vence ? ' · '+formatFecha(trabajador.examen_vence) : ''));
+    if(ind.estado==='vencido') motivos.push('Inducción vencida'+(trabajador.induccion_vence ? ' · '+formatFecha(trabajador.induccion_vence) : ''));
+
+    if(motivos.length){
+      if(estado) estado.textContent='⛔ ACCESO DENEGADO · '+trabajador.nombre;
+      mostrarResultadoLark('denegado',trabajador,'No se registró el ingreso',motivos);
       mostrarToast('⛔ Acceso denegado: documentación vencida');
       return;
     }
 
+    // INGRESO
     const select = document.getElementById('lark-nivel');
     const nivelElegido = select && select.value ? select.value : 'Interior Mina';
     const destino = tipoSeguimiento(trabajador.cargo)==='General' ? 'Interior Mina' : nivelElegido;
 
     const resultado = await ingresarDirecto(trabajador.id,destino);
     await nuevaSeleccionPersonal();
-    if(estado) estado.textContent = resultado && resultado.ok
-      ? '🟢 INGRESO · '+trabajador.nombre+' → '+destino+(resultado.sincronizado?'':' · pendiente de sincronizar')
-      : '❌ No se pudo registrar el ingreso de '+trabajador.nombre;
+
+    if(resultado && resultado.ok){
+      if(estado) estado.textContent='🟢 INGRESO · '+trabajador.nombre+' → '+destino;
+      mostrarResultadoLark(
+        'ingreso',
+        trabajador,
+        'Ingreso a '+destino+(resultado.sincronizado ? '' : ' · pendiente de sincronizar')
+      );
+    }else{
+      if(estado) estado.textContent='❌ No se pudo registrar el ingreso de '+trabajador.nombre;
+    }
   }finally{
     larkProcesando=false;
     setTimeout(enfocarLectorIndustrial,120);
@@ -2427,5 +2512,15 @@ document.addEventListener('DOMContentLoaded', function(){
 // Lector industrial listo al abrir la aplicación.
 document.addEventListener('DOMContentLoaded',()=>setTimeout(inicializarLectorIndustrial,300));
 </script>
+
+<div id="resultado-lark-overlay" class="resultado-lark-overlay">
+  <div class="resultado-lark-card">
+    <div id="resultado-lark-icono" class="resultado-lark-icono"></div>
+    <div id="resultado-lark-titulo" class="resultado-lark-titulo"></div>
+    <div id="resultado-lark-nombre" class="resultado-lark-nombre"></div>
+    <div id="resultado-lark-detalle" class="resultado-lark-detalle"></div>
+    <div id="resultado-lark-motivos" class="resultado-lark-motivos" style="display:none"></div>
+  </div>
+</div>
 </body>
 </html>
