@@ -399,6 +399,7 @@
     <div class="modal-titulo">Seleccione nivel de destino</div>
     <div class="nivel-grid" id="nivel-grid"></div>
     <button class="btn btn-verde" style="margin-top:14px" id="btn-confirmar-nivel" onclick="confirmarIngreso()" disabled>✓ Confirmar ingreso</button>
+    <button class="btn btn-rojo" id="btn-salida-nivel" style="display:none" onclick="registrarSalidaDesdeModal()">↩ Registrar salida de faena</button>
     <button class="btn btn-gris" onclick="cerrarModalNivel()">Cancelar</button>
   </div>
 </div>
@@ -1485,11 +1486,18 @@ function abrirModalNivel(id, origen){
   pendienteId = id;
   pendienteNivel = null;
   pendienteOrigen = origen || 'qr';
+  modoModal = 'ingreso';
+  const titulo=document.querySelector('#modal-nivel .modal-titulo');
+  if(titulo) titulo.textContent='Seleccione nivel de destino';
   const grid = document.getElementById('nivel-grid');
   grid.innerHTML = NIVELES.filter(n=>n!=='Interior Mina').map(n=>
     `<div class="nivel-btn" onclick="seleccionarNivel('${n}',this)">${n}</div>`
   ).join('');
-  document.getElementById('btn-confirmar-nivel').disabled = true;
+  const btn=document.getElementById('btn-confirmar-nivel');
+  btn.textContent='✓ Confirmar ingreso';
+  btn.disabled = true;
+  const salida=document.getElementById('btn-salida-nivel');
+  if(salida){ salida.style.display='none'; salida.disabled=false; salida.textContent='↩ Registrar salida de faena'; }
   document.getElementById('modal-nivel').classList.add('active');
 }
 
@@ -1510,6 +1518,12 @@ function confirmarIngreso(){
 
 function cerrarModalNivel(){
   document.getElementById('modal-nivel').classList.remove('active');
+  const titulo=document.querySelector('#modal-nivel .modal-titulo');
+  if(titulo) titulo.textContent='Seleccione nivel de destino';
+  const btn=document.getElementById('btn-confirmar-nivel');
+  if(btn){ btn.textContent='✓ Confirmar ingreso'; btn.disabled=true; }
+  const salida=document.getElementById('btn-salida-nivel');
+  if(salida){ salida.style.display='none'; salida.disabled=false; salida.textContent='↩ Registrar salida de faena'; }
 }
 
 let modoModal = 'ingreso'; // 'ingreso' o 'cambio'
@@ -1532,7 +1546,63 @@ function abrirModalCambioNivel(id, origen){
   const btn=document.getElementById('btn-confirmar-nivel');
   btn.textContent = '📍 Confirmar cambio de ubicación';
   btn.disabled = true;
+  const salida=document.getElementById('btn-salida-nivel');
+  if(salida){
+    salida.style.display='block';
+    salida.disabled=false;
+    salida.textContent='↩ Registrar salida de '+p.nombre;
+  }
   document.getElementById('modal-nivel').classList.add('active');
+}
+
+async function registrarSalidaDesdeModal(){
+  if(!pendienteId) return;
+  const id=pendienteId;
+  const origenUI=pendienteOrigen;
+  const personal=cargarPersonal();
+  const idx=personal.findIndex(p=>p.id===id);
+  if(idx===-1) return;
+  const p=personal[idx];
+  if(p.estado!=='Dentro'){
+    mostrarToast('ℹ️ El trabajador ya está fuera de faena');
+    cerrarModalNivel();
+    if(origenUI==='dashboard') renderDashboard();
+    return;
+  }
+
+  const origen=p.ubicacion_actual || 'Interior Mina';
+  const btnCambio=document.getElementById('btn-confirmar-nivel');
+  const btnSalida=document.getElementById('btn-salida-nivel');
+  if(btnCambio) btnCambio.disabled=true;
+  if(btnSalida){ btnSalida.disabled=true; btnSalida.textContent='⏳ Registrando salida...'; }
+
+  const resultado=await registrarMovimiento(id,'Salida',origen,'Fuera Faena','Fuera','');
+  if(!resultado || !resultado.ok){
+    if(btnCambio) btnCambio.disabled=false;
+    if(btnSalida){ btnSalida.disabled=false; btnSalida.textContent='↩ Registrar salida de '+p.nombre; }
+    mostrarToast('❌ No se pudo registrar la salida');
+    return;
+  }
+
+  personal[idx].estado='Fuera';
+  personal[idx].ubicacion_actual='';
+  guardarPersonalLS(personal);
+
+  cerrarModalNivel();
+  modoModal='ingreso';
+  pendienteId=null;
+  pendienteNivel=null;
+
+  if(origenUI==='dashboard'){
+    renderDashboard();
+  }else if(origenUI==='buscar'){
+    mostrarFichaBuscar2(id);
+  }else{
+    const actualizado=cargarPersonal().find(x=>x.id===id);
+    if(actualizado) mostrarFichaEscaneo(actualizado);
+  }
+
+  mostrarToast('↩ Salida registrada: '+p.nombre+(resultado.sincronizado?'':' · pendiente de sincronizar'));
 }
 
 async function confirmarCambioNivel(){
