@@ -89,7 +89,9 @@
   .stat-row:last-child{border-bottom:none}
   .stat-nivel{font-size:14px;font-weight:600}
   .stat-num{font-size:18px;font-weight:700;color:var(--azul)}
-  .stat-nombres{font-size:12px;color:var(--texto2);margin-top:2px}
+  .stat-nombres{font-size:12px;color:var(--texto2);margin-top:4px;display:flex;flex-wrap:wrap;gap:5px}
+  .stat-persona-btn{border:1px solid var(--borde);background:#fff;color:var(--azul);border-radius:8px;padding:5px 8px;font-size:12px;font-weight:600;cursor:pointer}
+  .stat-persona-btn:active{background:var(--azul-c)}
   .total-box{background:var(--azul);color:#fff;border-radius:12px;padding:16px;text-align:center;margin-bottom:10px}
   .total-num{font-size:36px;font-weight:700}
   .total-label{font-size:13px;opacity:.85}
@@ -218,8 +220,6 @@
         <div><strong>Modo directo</strong><br>
         Un escaneo registra automáticamente <strong>Ingreso</strong> si está fuera y <strong>Salida</strong> si está dentro.</div>
       </div>
-      <label>Nivel destino para ingresos de personal con nivel fijo</label>
-      <select class="input" id="lark-nivel" onchange="guardarNivelLark()"></select>
       <label>Lectura del lector industrial</label>
       <input type="text" class="input" id="lark-input"
         placeholder="Listo para escanear QR..."
@@ -1028,18 +1028,10 @@ let larkUltimoTs = 0;
 const LARK_BLOQUEO_MS = 5000;
 
 function inicializarLectorIndustrial(){
-  const select = document.getElementById('lark-nivel');
-  if(select && !select.options.length){
-    select.innerHTML = NIVELES.map(n=>`<option value="${n}">${n}</option>`).join('');
-    const guardado = localStorage.getItem('lark_nivel_destino');
-    select.value = NIVELES.includes(guardado) ? guardado : 'Interior Mina';
-  }
   setTimeout(enfocarLectorIndustrial,150);
 }
 
 function guardarNivelLark(){
-  const select = document.getElementById('lark-nivel');
-  if(select) localStorage.setItem('lark_nivel_destino',select.value);
   enfocarLectorIndustrial();
 }
 
@@ -1132,6 +1124,24 @@ function mostrarResultadoLark(tipo, trabajador, detalle='', motivos=[]){
   resultadoLarkTimer=setTimeout(cerrarResultadoLark,1500);
 }
 
+function estadoEfectivoLark(trabajador){
+  const ahora=Date.now();
+  const movs=cargarMovimientos()
+    .filter(m=>String(m.personal_id).trim()===String(trabajador.id).trim())
+    .sort((a,b)=>new Date(b.fecha_hora||0)-new Date(a.fecha_hora||0));
+  const ult=movs[0];
+  if(ult){
+    const t=new Date(ult.fecha_hora||0).getTime();
+    const reciente=Number.isFinite(t) && (ahora-t)<2*60*1000;
+    if(reciente){
+      if(ult.evento==='Ingreso') return {estado:'Dentro',ubicacion:ult.nivel_destino||trabajador.ubicacion_actual||'Interior Mina'};
+      if(ult.evento==='Salida') return {estado:'Fuera',ubicacion:''};
+      if(ult.evento==='Cambio Nivel') return {estado:'Dentro',ubicacion:ult.nivel_destino||trabajador.ubicacion_actual||'Interior Mina'};
+    }
+  }
+  return {estado:trabajador.estado||'Fuera',ubicacion:trabajador.ubicacion_actual||''};
+}
+
 async function procesarLectorIndustrial(valor){
   if(larkProcesando) return;
   const estado = document.getElementById('lark-estado');
@@ -1157,32 +1167,31 @@ async function procesarLectorIndustrial(valor){
     if(!trabajador){
       if(estado) estado.textContent='❌ ID no encontrado: '+id;
       mostrarResultadoLark('denegado',{nombre:'Credencial no reconocida'},'ID: '+id,['Trabajador no encontrado']);
+      await new Promise(r=>setTimeout(r,1500));
       return;
     }
 
-    if(estado) estado.textContent='⏳ Procesando '+trabajador.nombre+'...';
+    const efectivo=estadoEfectivoLark(trabajador);
+    trabajador.estado=efectivo.estado;
+    trabajador.ubicacion_actual=efectivo.ubicacion;
 
-    // SALIDA: la función comienza y guarda el movimiento local antes de esperar Sheets.
-    if(trabajador.estado === 'Dentro'){
-      const origen = trabajador.ubicacion_actual || 'Interior Mina';
-      const promesaSalida = salirDirecto(trabajador.id);
+    if(estado) estado.textContent='⏳ Registrando '+trabajador.nombre+'...';
 
-      // Confirmación visual inmediata, sin esperar a Sheets.
-      mostrarResultadoLark('salida',trabajador,'Salida desde '+origen);
-
-      const resultado = await promesaSalida;
-      await nuevaSeleccionPersonal();
+    if(efectivo.estado === 'Dentro'){
+      const origen = efectivo.ubicacion || 'Interior Mina';
+      const resultado = await salirDirecto(trabajador.id);
 
       if(resultado && resultado.ok){
+        await nuevaSeleccionPersonal();
         if(estado) estado.textContent='🔵 SALIDA · '+trabajador.nombre;
+        mostrarResultadoLark('salida',trabajador,'Salida desde '+origen+(resultado.sincronizado ? '' : ' · pendiente de sincronizar'));
+        await new Promise(r=>setTimeout(r,1500));
       }else{
-        cerrarResultadoLark();
         if(estado) estado.textContent='❌ No se pudo registrar la salida de '+trabajador.nombre;
       }
       return;
     }
 
-    // VALIDACIÓN DOCUMENTAL PARA INGRESO
     const lic=estadoDoc(trabajador.licencia_vence);
     const exa=estadoDoc(trabajador.examen_vence);
     const ind=estadoDoc(trabajador.induccion_vence);
@@ -1197,26 +1206,19 @@ async function procesarLectorIndustrial(valor){
       if(estado) estado.textContent='⛔ ACCESO DENEGADO · '+trabajador.nombre;
       mostrarResultadoLark('denegado',trabajador,'No se registró el ingreso',motivos);
       mostrarToast('⛔ Acceso denegado: documentación vencida');
+      await new Promise(r=>setTimeout(r,1500));
       return;
     }
 
-    // INGRESO: guarda localmente primero; ticket inmediato; Sheets continúa sincronizando.
-    const select = document.getElementById('lark-nivel');
-    const nivelElegido = select && select.value ? select.value : 'Interior Mina';
-    const destino = tipoSeguimiento(trabajador.cargo)==='General' ? 'Interior Mina' : nivelElegido;
-
-    const promesaIngreso = ingresarDirecto(trabajador.id,destino);
-
-    // Confirmación visual inmediata, sin esperar a Sheets.
-    mostrarResultadoLark('ingreso',trabajador,'Ingreso a '+destino);
-
-    const resultado = await promesaIngreso;
-    await nuevaSeleccionPersonal();
+    const destino='Interior Mina';
+    const resultado = await ingresarDirecto(trabajador.id,destino);
 
     if(resultado && resultado.ok){
+      await nuevaSeleccionPersonal();
       if(estado) estado.textContent='🟢 INGRESO · '+trabajador.nombre+' → '+destino;
+      mostrarResultadoLark('ingreso',trabajador,'Ingreso a '+destino+(resultado.sincronizado ? '' : ' · pendiente de sincronizar'));
+      await new Promise(r=>setTimeout(r,1500));
     }else{
-      cerrarResultadoLark();
       if(estado) estado.textContent='❌ No se pudo registrar el ingreso de '+trabajador.nombre;
     }
   }finally{
@@ -1515,30 +1517,61 @@ function abrirModalCambioNivel(id, origen){
   modoModal = 'cambio';
   const personal = cargarPersonal();
   const p = personal.find(x=>x.id===id);
+  if(!p || p.estado!=='Dentro'){ mostrarToast('⚠️ El trabajador no está dentro de faena'); return; }
   const grid = document.getElementById('nivel-grid');
-  grid.innerHTML = NIVELES.filter(n=>n!=='Interior Mina').map(n=>
-    `<div class="nivel-btn ${p && p.ubicacion_actual===n?'selected':''}" onclick="seleccionarNivel('${n}',this)">${n}</div>`
+  const opciones=NIVELES.filter(n=>n!==p.ubicacion_actual);
+  grid.innerHTML = opciones.map(n=>
+    `<div class="nivel-btn" onclick="seleccionarNivel('${n}',this)">${n}</div>`
   ).join('');
-  document.getElementById('btn-confirmar-nivel').textContent = '📍 Confirmar cambio de ubicación';
-  document.getElementById('btn-confirmar-nivel').disabled = false;
+  const titulo=document.querySelector('#modal-nivel .modal-titulo');
+  if(titulo) titulo.textContent='Reubicar a '+p.nombre;
+  const btn=document.getElementById('btn-confirmar-nivel');
+  btn.textContent = '📍 Confirmar cambio de ubicación';
+  btn.disabled = true;
   document.getElementById('modal-nivel').classList.add('active');
 }
 
-function confirmarCambioNivel(){
+async function confirmarCambioNivel(){
   if(!pendienteId || !pendienteNivel) return;
+  const id=pendienteId;
+  const destino=pendienteNivel;
+  const origenUI=pendienteOrigen;
   const personal = cargarPersonal();
-  const idx = personal.findIndex(p=>p.id===pendienteId);
+  const idx = personal.findIndex(p=>p.id===id);
   if(idx===-1) return;
-  const origen = personal[idx].ubicacion_actual;
-  personal[idx].ubicacion_actual = pendienteNivel;
+  const origen = personal[idx].ubicacion_actual || 'Interior Mina';
+  if(origen===destino){ mostrarToast('ℹ️ Ya se encuentra en esa ubicación'); return; }
+
+  const btn=document.getElementById('btn-confirmar-nivel');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Registrando cambio...'; }
+
+  const resultado=await registrarMovimiento(id,'Cambio Nivel',origen,destino,'Dentro',destino);
+  if(!resultado || !resultado.ok){
+    if(btn){ btn.disabled=false; btn.textContent='📍 Confirmar cambio de ubicación'; }
+    mostrarToast('❌ No se pudo registrar el cambio');
+    return;
+  }
+
+  personal[idx].estado='Dentro';
+  personal[idx].ubicacion_actual=destino;
   guardarPersonalLS(personal);
-  registrarMovimiento(pendienteId, 'Cambio Nivel', origen, pendienteNivel, 'Dentro', pendienteNivel);
+
   cerrarModalNivel();
   document.getElementById('btn-confirmar-nivel').textContent = '✓ Confirmar ingreso';
   modoModal = 'ingreso';
-  if(pendienteOrigen==='buscar') mostrarFichaBuscar2(pendienteId);
-  else { const personal = cargarPersonal(); const p = personal.find(x=>x.id===pendienteId); if(p) mostrarFichaEscaneo(p); }
-  mostrarToast('📍 Ubicación actualizada');
+  pendienteId=null;
+  pendienteNivel=null;
+
+  if(origenUI==='dashboard'){
+    renderDashboard();
+  }else if(origenUI==='buscar'){
+    mostrarFichaBuscar2(id);
+  }else{
+    const actualizado=cargarPersonal().find(x=>x.id===id);
+    if(actualizado) mostrarFichaEscaneo(actualizado);
+  }
+
+  mostrarToast('📍 Reubicado: '+origen+' → '+destino+(resultado.sincronizado?'':' · pendiente de sincronizar'));
 }
 
 // ══════════════════════════════════════════════════════════
@@ -1690,7 +1723,7 @@ function renderDashboard(){
         return `<div class="stat-row">
           <div>
             <div class="stat-nivel">📍 ${n}</div>
-            ${personas.length ? `<div class="stat-nombres">${personas.map(p=>p.nombre).join(', ')}</div>` : ''}
+            ${personas.length ? `<div class="stat-nombres">${personas.map(p=>`<button class="stat-persona-btn" onclick="abrirModalCambioNivel('${String(p.id).replace(/'/g,"\\'")}','dashboard')">📍 ${p.nombre}</button>`).join('')}</div>` : ''}
           </div>
           <div class="stat-num">${personas.length}</div>
         </div>`;
